@@ -46,7 +46,7 @@ pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
 /// Import the template pallet.
-pub use pallet_hybrid_exchange;
+pub use pallet_hana_exchange;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -95,8 +95,8 @@ pub mod opaque {
 // https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("node-template"),
-	impl_name: create_runtime_str!("node-template"),
+	spec_name: create_runtime_str!("hanaverse-fi"),
+	impl_name: create_runtime_str!("hanaverse-fi"),
 	authoring_version: 1,
 	// The version of the runtime specification. A full node will not attempt to use its native
 	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
@@ -243,6 +243,12 @@ impl pallet_transaction_payment::Config for Runtime {
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
+impl pallet_hana_exchange::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type AssetId = u32;
+	type WeightInfo = pallet_hana_exchange::weights::SubstrateWeight<Runtime>;
+}
+
 impl pallet_sudo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
@@ -252,13 +258,14 @@ impl pallet_sudo::Config for Runtime {
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime {
-		System: frame_system,
-		Timestamp: pallet_timestamp,
-		Aura: pallet_aura,
-		Grandpa: pallet_grandpa,
-		Balances: pallet_balances,
-		TransactionPayment: pallet_transaction_payment,
-		Sudo: pallet_sudo,
+		System: frame_system::{Pallet, Call, Storage, Config<T>, Event<T>} = 0,
+		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
+		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
+		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config<T>, Event, ValidateUnsigned} = 11,
+		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 5,
+		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 31,
+		HanaExchange: pallet_hana_exchange::{Pallet, Storage, Event<T>} = 50,
+		Sudo: pallet_sudo::{Pallet, Call, Storage, Config<T>, Event<T>} = 99,
 	}
 );
 

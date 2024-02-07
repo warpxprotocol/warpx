@@ -1,20 +1,22 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-/// Edit this file to define custom logic or remove it if it is not needed.
-/// Learn more about FRAME and the core library of Substrate FRAME pallets:
-/// <https://docs.substrate.io/reference/frame-pallets/>
-pub use pallet::*;
-
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod weights;
 pub use weights::*;
 
+use frame_support::pallet_prelude::*;
+use frame_system::pallet_prelude::*;
+use sp_runtime::traits::AtLeast32BitUnsigned;
+
+pub use pallet::*;
+
+mod types;
+use types::*;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -24,17 +26,34 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type AssetId: Member
+			+ Parameter
+			+ Clone
+			+ MaybeSerializeDeserialize
+			+ MaxEncodedLen
+			+ IsType<SystemTokenAssetId>;
+
+		type Balance: Member
+			+ Parameter
+			+ AtLeast32BitUnsigned
+			+ Default
+			+ Copy
+			+ MaybeSerializeDeserialize
+			+ MaxEncodedLen
+			+ TypeInfo
+			+ IsType<SystemTokenBalance>;
+
 		/// Type representing the weight of this pallet
 		type WeightInfo: WeightInfo;
 	}
 
-	// The pallet's runtime storage items.
-	// https://docs.substrate.io/main-docs/build/runtime-storage/
 	#[pallet::storage]
-	#[pallet::getter(fn something)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/main-docs/build/runtime-storage/#declaring-storage-items
-	pub type Something<T> = StorageValue<_, u32>;
+	#[pallet::getter(fn markets)]
+	pub type Markets<T> = StorageMap<_, 
+		Twox64Concat, 
+		MarketId, 
+		Market<T::AssetId, AccountIdFor<T>, BlockNumberFor<T>, T::Balance, u64>
+	>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
