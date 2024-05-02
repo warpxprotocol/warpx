@@ -6,10 +6,13 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use pallet_grandpa::AuthorityId as GrandpaId;
+mod constants;
+use constants::{currency::*, time::*};
+
+// Primtivies
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
@@ -20,11 +23,14 @@ use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
+#[cfg(any(feature = "std", test))]
+pub use sp_runtime::BuildStorage;
+pub use sp_runtime::{Perbill, Permill};
 
-use frame_support::genesis_builder_helper::{build_config, create_default_config};
-// A few exports that help ease life for downstream crates.
+// System
 pub use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
+	genesis_builder_helper::{build_config, create_default_config}
 	traits::{
 		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness,
 		StorageInfo,
@@ -38,34 +44,36 @@ pub use frame_support::{
 	StorageValue,
 };
 pub use frame_system::Call as SystemCall;
+
+// FRAMES
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
-#[cfg(any(feature = "std", test))]
-pub use sp_runtime::BuildStorage;
-pub use sp_runtime::{Perbill, Permill};
+use pallet_grandpa::AuthorityId as GrandpaId;
 
-/// Import the template pallet.
-pub use pallet_hana_exchange;
+use primitives::*;
+pub mod primitives {
 
-/// An index to a block.
-pub type BlockNumber = u32;
+	use super::*;
+	/// An index to a block.
+	pub type BlockNumber = u32;
 
-/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-pub type Signature = MultiSignature;
+	/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
+	pub type Signature = MultiSignature;
 
-/// Some way of identifying an account on the chain. We intentionally make it equivalent
-/// to the public key of our transaction signing scheme.
-pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+	/// Some way of identifying an account on the chain. We intentionally make it equivalent
+	/// to the public key of our transaction signing scheme.
+	pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
-/// Balance of an account.
-pub type Balance = u128;
+	/// Balance of an account.
+	pub type Balance = u128;
 
-/// Index of a transaction in the chain.
-pub type Nonce = u32;
+	/// Index of a transaction in the chain.
+	pub type Nonce = u32;
 
-/// A hash of some data used by the chain.
-pub type Hash = sp_core::H256;
+	/// A hash of some data used by the chain.
+	pub type Hash = sp_core::H256;
+}
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -110,23 +118,6 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	state_version: 1,
 };
 
-/// This determines the average expected block time that we are targeting.
-/// Blocks will be produced at a minimum duration defined by `SLOT_DURATION`.
-/// `SLOT_DURATION` is picked up by `pallet_timestamp` which is in turn picked
-/// up by `pallet_aura` to implement `fn slot_duration()`.
-///
-/// Change this to adjust the block time.
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
-
-// NOTE: Currently it is not possible to change the slot duration after the chain has started.
-//       Attempting to do so will brick block production.
-pub const SLOT_DURATION: u64 = MILLISECS_PER_BLOCK;
-
-// Time is measured by number of blocks.
-pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
-pub const HOURS: BlockNumber = MINUTES * 60;
-pub const DAYS: BlockNumber = HOURS * 24;
-
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
@@ -149,10 +140,12 @@ parameter_types! {
 	pub const SS58Prefix: u8 = 42;
 }
 
+// impls
+
 /// The default types are being injected by [`derive_impl`](`frame_support::derive_impl`) from
 /// [`SoloChainDefaultConfig`](`struct@frame_system::config_preludes::SolochainDefaultConfig`),
 /// but overridden as needed.
-#[derive_impl(frame_system::config_preludes::SolochainDefaultConfig as frame_system::DefaultConfig)]
+#[derive_impl(frame_system::config_preludes::SolochainDefaultConfig)]
 impl frame_system::Config for Runtime {
 	/// The block type for the runtime.
 	type Block = Block;
@@ -182,10 +175,9 @@ impl frame_system::Config for Runtime {
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
 	type DisabledValidators = ();
-	type MaxAuthorities = ConstU32<32>;
-	type AllowMultipleBlocksPerSlot = ConstBool<false>;
-	#[cfg(feature = "experimental")]
-	type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Runtime>;
+	type MaxAuthorities = ConstU32<100_000>;
+	type AllowMultipleBlocksPerSlot = ConstBool<true>;
+	type SlotDuration = ConstU64<SLOT_DURATION>;
 }
 
 impl pallet_grandpa::Config for Runtime {
@@ -208,26 +200,28 @@ impl pallet_timestamp::Config for Runtime {
 	type WeightInfo = ();
 }
 
-/// Existential deposit.
-pub const EXISTENTIAL_DEPOSIT: u128 = 500;
+parameter_types! {
+	pub const ExistentialDeposit: Balance = 1 * DOLLARS;
+	// For weight estimation, we assume that the most locks on an individual account will be 50.
+	// This number may need to be adjusted in the future if this assumption no longer holds true.
+	pub const MaxLocks: u32 = 50;
+	pub const MaxReserves: u32 = 50;
+}
 
 impl pallet_balances::Config for Runtime {
-	/// The ubiquitous event type.
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeHoldReason = ();
-	type RuntimeFreezeReason = ();
-	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
-	/// The type for recording an account's balance.
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type RuntimeFreezeReason = RuntimeFreezeReason;
+	type MaxLocks = MaxLocks;
+	type MaxReserves = MaxReserves;
+	type ReserveIdentifier = [u8; 8];
 	type Balance = Balance;
 	type DustRemoval = ();
-	type ExistentialDeposit = ConstU128<EXISTENTIAL_DEPOSIT>;
-	type AccountStore = System;
-	type ReserveIdentifier = [u8; 8];
-	type FreezeIdentifier = ();
-	type MaxReserves = ConstU32<50>;
-	type MaxLocks = ConstU32<50>;
-	type MaxHolds = ConstU32<50>;
-	type MaxFreezes = ConstU32<50>;
+	type RuntimeEvent = RuntimeEvent;
+	type ExistentialDeposit = ExistentialDeposit;
+	type AccountStore = frame_system::Pallet<Runtime>;
+	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
+	type FreezeIdentifier = RuntimeFreezeReason;
+	type MaxFreezes = ConstU32<1>;
 }
 
 parameter_types! {
@@ -243,10 +237,12 @@ impl pallet_transaction_payment::Config for Runtime {
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
 
-impl pallet_hana_exchange::Config for Runtime {
+impl pallet_hybrid_orderbook::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type AssetId = u32;
-	type WeightInfo = pallet_hana_exchange::weights::SubstrateWeight<Runtime>;
+	type Balance = Balance;
+	type HigherPrecisionBalance = U256;
+	type AssetKind = 
+	type WeightInfo = pallet_hybrid_orderbook::weights::SubstrateWeight<Runtime>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -255,19 +251,46 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
 }
 
-// Create the runtime by composing the FRAME pallets that were previously configured.
-construct_runtime!(
-	pub enum Runtime {
-		System: frame_system::{Pallet, Call, Storage, Config<T>, Event<T>} = 0,
-		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
-		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
-		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config<T>, Event, ValidateUnsigned} = 11,
-		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 5,
-		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 31,
-		HanaExchange: pallet_hana_exchange::{Pallet, Storage, Event<T>} = 50,
-		Sudo: pallet_sudo::{Pallet, Call, Storage, Config<T>, Event<T>} = 99,
-	}
-);
+#[frame_support::runtime]
+mod runtime {
+	#[runtime::runtime]
+	#[runtime::derive(
+		RuntimeCall,
+		RuntimeEvent,
+		RuntimeError,
+		RuntimeOrigin,
+		RuntimeFreezeReason,
+		RuntimeHoldReason,
+		RuntimeSlashReason,
+		RuntimeLockId,
+		RuntimeTask
+	)]
+	pub struct Runtime;
+
+	#[runtime::pallet_index(0)]
+	type System = frame_system;
+
+	#[runtime::pallet_index(1)]
+	type Timestamp = pallet_timestamp;
+
+	#[runtime::pallet_index(5)]
+	type Balances = pallet_balances;
+
+	#[runtime::pallet_index(10)]
+	type Grandpa = pallet_grandpa;
+
+	#[runtime::pallet_index(20)]
+	type Aura = pallet_aura;
+
+	#[runtime::pallet_index(30)]
+	type TransactionPayment = pallet_transaction_payment;
+
+	#[runtime::pallet_index(50)]
+	type HybridOrderbook = pallet_hybrid_orderbook;
+
+	#[runtime::pallet_index(99)]
+	type Sudo = pallet_sudo;
+}
 
 /// The address format for describing accounts.
 pub type Address = sp_runtime::MultiAddress<AccountId, ()>;

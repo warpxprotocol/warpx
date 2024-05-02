@@ -2,12 +2,43 @@
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+
 pub mod weights;
 pub use weights::*;
 
-use frame_support::pallet_prelude::*;
-use frame_system::pallet_prelude::*;
-use sp_runtime::traits::AtLeast32BitUnsigned;
+// #[cfg(test)]
+// mod mock;
+
+// #[cfg(test)]
+// mod test;
+
+pub use codec::{Decode, Encode, MaxEncodedLen};
+pub use scale_info::TypeInfo;
+
+use frame_support::{
+	storage::{with_storage_layer, with_transaction},
+	traits::{
+		fungibles::{Balanced, Create, Credit, Inspect, Mutate},
+		tokens::{
+			AssetId, Balance,
+			Fortitude::Polite,
+			Precision::Exact,
+			Preservation::{Expendable, Preserve},
+		},
+		AccountTouch, Incrementable, OnUnbalanced,
+	},
+	PalletId,
+};
+use sp_core::Get;
+use sp_runtime::{
+	traits::{
+		CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Ensure, IntegerSquareRoot, MaybeDisplay,
+		One, TrailingZeroInput, Zero,
+	},
+	DispatchError, Saturating, TokenError, TransactionOutcome,
+};
+use sp_std::collections::btree_map::BTreeMap;
+use sp_arithmetic::{traits:: Unsigned, Permill};
 
 pub use pallet::*;
 
@@ -17,6 +48,8 @@ use types::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use frame_support::pallet_prelude::{DispatchResult, *};
+	use frame_system::pallet_prelude::*;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -26,22 +59,31 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		type AssetId: Member
-			+ Parameter
-			+ Clone
-			+ MaybeSerializeDeserialize
-			+ MaxEncodedLen
-			+ IsType<SystemTokenAssetId>;
 
-		type Balance: Member
-			+ Parameter
-			+ AtLeast32BitUnsigned
-			+ Default
-			+ Copy
-			+ MaybeSerializeDeserialize
-			+ MaxEncodedLen
-			+ TypeInfo
-			+ IsType<SystemTokenBalance>;
+		/// The type in which the assets for swapping are measured.
+		type Balance: Balance;
+
+		/// A type used for calculations concerning the `Balance` type to avoid possible overflows.
+		type HigherPrecisionBalance: IntegerSquareRoot
+			+ One
+			+ Ensure
+			+ Unsigned
+			+ From<u32>
+			+ From<Self::Balance>
+			+ TryInto<Self::Balance>;
+
+		/// Type of asset class, sourced from [`Config::Assets`], utilized to offer liquidity to a
+		/// pool.
+		type AssetKind: Parameter + MaxEncodedLen;
+
+		/// Registry of assets utilized for providing liquidity to pools.
+		type Assets: Inspect<Self::AccountId, AssetId = Self::AssetKind, Balance = Self::Balance>
+			+ Mutate<Self::AccountId>
+			+ AccountTouch<Self::AssetKind, Self::AccountId, Balance = Self::Balance>
+			+ Balanced<Self::AccountId>;
+
+		/// Liquidity pool identifier.
+		type PoolId: Parameter + MaxEncodedLen + Ord;
 
 		/// Type representing the weight of this pallet
 		type WeightInfo: WeightInfo;
@@ -49,10 +91,11 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn markets)]
-	pub type Markets<T> = StorageMap<_, 
+	#[pallet::unbounded]
+	pub type Pools<T: Config> = StorageMap<_, 
 		Twox64Concat, 
-		MarketId, 
-		Market<T::AssetId, AccountIdFor<T>, BlockNumberFor<T>, T::Balance, u64>
+		T::PoolId, 
+		Pool<T::AssetKind, T::AccountId, BlockNumberFor<T>, T::Balance, u64>
 	>;
 
 	// Pallets use events to inform users when important changes are made.
@@ -89,33 +132,10 @@ pub mod pallet {
 			// https://docs.substrate.io/main-docs/build/origins/
 			let who = ensure_signed(origin)?;
 
-			// Update storage.
-			<Something<T>>::put(something);
-
 			// Emit an event.
 			Self::deposit_event(Event::SomethingStored { something, who });
 			// Return a successful DispatchResultWithPostInfo
 			Ok(())
-		}
-
-		/// An example dispatchable that may throw a custom error.
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::cause_error())]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
-
-			// Read a value from storage.
-			match <Something<T>>::get() {
-				// Return an error if the value has not been set.
-				None => return Err(Error::<T>::NoneValue.into()),
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					<Something<T>>::put(new);
-					Ok(())
-				},
-			}
 		}
 	}
 }
