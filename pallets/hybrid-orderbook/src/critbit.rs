@@ -9,7 +9,7 @@ pub struct CritbitTree<K, V> {
     /// Index of the root node which is part of the internal nodes.
     root: K,
     /// The internal nodes of the tree.
-    internal_nodes: BTreeMap<K, InteriorNode<K>>,
+    internal_nodes: BTreeMap<K, InternalNode<K>>,
     /// The leaf nodes of the tree.
     leaves: BTreeMap<K, LeafNode<K, V>>,
     /// Index of the largest value of the leaf nodes. Could be updated for every insertion.
@@ -25,7 +25,7 @@ pub struct CritbitTree<K, V> {
 #[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
 pub enum NodeKind {
     /// The node is an interior node.
-    Interior,
+    Internal,
     /// The node is a leaf node.
     #[default]
     Leaf,
@@ -77,8 +77,57 @@ where
     pub fn insert(&mut self, key: K, value: V) -> Result<(), CritbitTreeError> {
         let new_leaf = LeafNode::new(key, value);
         let new_leaf_index = self.next_index(NodeKind::Leaf)?;
-        self.leaves.insert(new_leaf_index, new_leaf);
+        if let Some(_) = self.leaves.insert(new_leaf_index, new_leaf) {
+            return Err(CritbitTreeError::UniqueIndex);
+        }
+        let closest_leaf_index = self.get_closet_leaf_index(&key)?;
+        if closest_leaf_index == K::PARTITION_INDEX {
+            // Handle first insertion
+            self.root = K::MAX_INDEX;
+            self.max_leaf = new_leaf_index;
+            self.min_leaf = new_leaf_index; 
+            return Ok(())
+        }
+        let closest_leaf_key = self.leaves.get(&closest_leaf_index).ok_or(CritbitTreeError::NotFound)?.key;
+        if closest_leaf_key == key {
+            return Err(CritbitTreeError::AlreadyExist);
+        }
+        let new_mask = K::new_mask(&key, &closest_leaf_key);
+        let new_internal_node = InternalNode::new(new_mask);
+        let new_internal_index = self.next_index(NodeKind::Internal)?;
+        if let Some(_) = self.internal_nodes.insert(new_internal_index, new_internal_node) {
+            return Err(CritbitTreeError::UniqueIndex);
+        }
+        let mut curr = self.root;
+        let mut internal_node_parent_index = K::PARTITION_INDEX;
+        while curr < K::PARTITION_INDEX {
+            let internal_node = self.internal_nodes.get(&curr).ok_or(CritbitTreeError::NotFound)?;
+            if new_mask > internal_node.mask {
+                break;
+            }
+            internal_node_parent_index = curr;
+            if internal_node.mask & key == Zero::zero() {
+                curr = internal_node.left;
+            } else {
+                curr = internal_node.right;
+            }
+        }
+        if internal_node_parent_index == K::PARTITION_INDEX {
+            self.root = new_internal_index;
+        } else {
+            let is_left_child = self.is_left_child(&internal_node_parent_index, &curr)?;
+            self.update_ref(&internal_node_parent_index, &curr, is_left_child)?;
+        }
+        let is_left_child = key & new_internal_node.mask == Zero::zero();
+        self.update_ref(&new_internal_index, &new_leaf_index, is_left_child)?;
+        self.update_ref(&new_internal_index, &curr, !is_left_child)?;
+        
         Ok(())
+    }
+
+    fn is_left_child(&self, parent: &K, index: &K) -> Result<bool, CritbitTreeError> {
+        let internal_node = self.internal_nodes.get(parent).ok_or(CritbitTreeError::NotFound)?;
+        Ok(internal_node.left == *index)
     }
 
     fn next_index(&mut self, kind: NodeKind) -> Result<K, CritbitTreeError> {
@@ -97,6 +146,31 @@ where
         }
     }
 
+    /// Update the tree reference which could be 'leaf' or 'internal' node.
+    fn update_ref(&mut self, parent: &K, child: &K, is_left_child: bool) -> Result<(), CritbitTreeError> {
+        let internal_node = if is_left_child {
+            let mut internal_node = self.internal_nodes.get(parent).ok_or(CritbitTreeError::NotFound)?;
+            internal_node.left = child;
+            internal_node
+        } else {
+            let mut internal_node = self.internal_nodes.get(parent).ok_or(CritbitTreeError::NotFound)?;
+            internal_node.right = child;
+            internal_node
+        };
+        self.internal_nodes.insert(parent, internal_node);
+        if *child > K::PARTITION_INDEX {
+            let leaf_node_index = K::MAX_INDEX - child;
+            let mut leaf_node = self.leaves.get(&leaf_node_index).ok_or(CritbitTreeError::NotFound)?;
+            leaf_node.parent = parent;
+            self.leaves.insert(leaf_node_index, leaf_node);            
+        } else {
+            let mut internal_node = self.internal_nodes.get(child).ok_or(CritbitTreeError::NotFound)?;
+            internal_node.parent = parent;
+            self.internal_nodes.insert(child, internal_node);
+        }
+        Ok(())
+    }
+
     fn get_closet_leaf_index(&self, key: &K) -> Result<K, CritbitTreeError> {
         let mut index = self.root;
         if index == K::PARTITION_INDEX {
@@ -112,7 +186,7 @@ where
                 index = internal_node.right;
             }
         }
-        Ok(index)
+        Ok(K::MAX_INDEX - index)
     }
 }
 
@@ -124,10 +198,14 @@ pub enum CritbitTreeError {
     Overflow,
     /// The key is not found in the tree.
     NotFound,
+    /// The index is already in use.
+    UniqueIndex,
+    /// The key already exists in the tree.
+    AlreadyExist,
 }
 
 #[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
-pub struct InteriorNode<K> {
+pub struct InternalNode<K> {
     /// Mask for branching the tree based on the critbit.
     mask: K,
     /// Parent index of the node.
@@ -138,10 +216,10 @@ pub struct InteriorNode<K> {
     right: K,
 }
 
-impl<K: CritbitTreeIndex> InteriorNode<K> {
+impl<K: CritbitTreeIndex> InternalNode<K> {
     /// Create new instance of the interior node.
     pub fn new(mask: K) -> Self {
-        InteriorNode {
+        InternalNode {
             mask,
             parent: K::PARTITION_INDEX,
             left: K::PARTITION_INDEX,
@@ -213,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_critbit_tree() {
-        let tree = CritbitTree::<u64, u64>::default();
+        assert_eq!(u64::new_mask(0,1).leading_zeros(), 63)
     }
 }
 
