@@ -5,6 +5,7 @@ mod benchmarking;
 
 pub mod weights;
 pub use weights::*;
+mod critbit;
 
 // #[cfg(test)]
 // mod mock;
@@ -27,13 +28,13 @@ use frame_support::{
 		},
 		AccountTouch, Incrementable, OnUnbalanced,
 	},
-	PalletId,
+	PalletId, ensure
 };
 use sp_core::Get;
 use sp_runtime::{
 	traits::{
 		CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Ensure, IntegerSquareRoot, MaybeDisplay,
-		One, TrailingZeroInput, Zero,
+		One, TrailingZeroInput, Zero, AtLeast32BitUnsigned
 	},
 	DispatchError, Saturating, TokenError, TransactionOutcome,
 };
@@ -95,7 +96,7 @@ pub mod pallet {
 	pub type Pools<T: Config> = StorageMap<_, 
 		Twox64Concat, 
 		T::PoolId, 
-		Pool<T::AssetKind, T::AccountId, BlockNumberFor<T>, T::Balance, u64>
+		Pool<T::Balance>
 	>;
 
 	// Pallets use events to inform users when important changes are made.
