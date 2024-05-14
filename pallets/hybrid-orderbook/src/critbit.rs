@@ -4,7 +4,7 @@ use core::ops::BitAnd;
 
 use super::*;
 
-#[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
 pub struct CritbitTree<K, V> {
     /// Index of the root node which is part of the internal nodes.
     root: K,
@@ -34,6 +34,7 @@ pub enum NodeKind {
 impl<K, V> CritbitTree<K, V> 
 where
     K: CritbitTreeIndex,
+    V: Clone,
 {   
     /// Create new instance of the tree.
     pub fn new() -> Self {
@@ -95,7 +96,7 @@ where
         let new_mask = K::new_mask(&key, &closest_leaf_key);
         let new_internal_node = InternalNode::new(new_mask);
         let new_internal_index = self.next_index(NodeKind::Internal)?;
-        if let Some(_) = self.internal_nodes.insert(new_internal_index, new_internal_node) {
+        if let Some(_) = self.internal_nodes.insert(new_internal_index, new_internal_node.clone()) {
             return Err(CritbitTreeError::UniqueIndex);
         }
         let mut curr = self.root;
@@ -116,11 +117,11 @@ where
             self.root = new_internal_index;
         } else {
             let is_left_child = self.is_left_child(&internal_node_parent_index, &curr)?;
-            self.update_ref(&internal_node_parent_index, &curr, is_left_child)?;
+            self.update_ref(internal_node_parent_index, new_internal_index, is_left_child)?;
         }
         let is_left_child = key & new_internal_node.mask == Zero::zero();
-        self.update_ref(&new_internal_index, &new_leaf_index, is_left_child)?;
-        self.update_ref(&new_internal_index, &curr, !is_left_child)?;
+        self.update_ref(new_internal_index, new_leaf_index, is_left_child)?;
+        self.update_ref(new_internal_index, curr, !is_left_child)?;
         
         Ok(())
     }
@@ -138,7 +139,7 @@ where
                 ensure!(self.next_leaf_node_index <= K::CAPACITY, CritbitTreeError::ExceedCapacity);
                 Ok(index)
             }
-            NodeKind::Interior => {
+            NodeKind::Internal => {
                 let index = self.next_internal_node_index;
                 self.next_internal_node_index = self.next_internal_node_index.checked_add(&One::one()).ok_or(CritbitTreeError::Overflow)?;
                 Ok(index)
@@ -147,25 +148,22 @@ where
     }
 
     /// Update the tree reference which could be 'leaf' or 'internal' node.
-    fn update_ref(&mut self, parent: &K, child: &K, is_left_child: bool) -> Result<(), CritbitTreeError> {
-        let internal_node = if is_left_child {
-            let mut internal_node = self.internal_nodes.get(parent).ok_or(CritbitTreeError::NotFound)?;
+    fn update_ref(&mut self, parent: K, child: K, is_left_child: bool) -> Result<(), CritbitTreeError> {
+        let mut internal_node = self.internal_nodes.get(&parent).ok_or(CritbitTreeError::NotFound)?.clone();
+        if is_left_child {
             internal_node.left = child;
-            internal_node
         } else {
-            let mut internal_node = self.internal_nodes.get(parent).ok_or(CritbitTreeError::NotFound)?;
             internal_node.right = child;
-            internal_node
-        };
+        }
         self.internal_nodes.insert(parent, internal_node);
-        if *child > K::PARTITION_INDEX {
+        if child > K::PARTITION_INDEX {
             let leaf_node_index = K::MAX_INDEX - child;
-            let mut leaf_node = self.leaves.get(&leaf_node_index).ok_or(CritbitTreeError::NotFound)?;
+            let mut leaf_node = self.leaves.get(&leaf_node_index).ok_or(CritbitTreeError::NotFound)?.clone();
             leaf_node.parent = parent;
             self.leaves.insert(leaf_node_index, leaf_node);            
         } else {
-            let mut internal_node = self.internal_nodes.get(child).ok_or(CritbitTreeError::NotFound)?;
-            internal_node.parent = parent;
+            let mut internal_node = self.internal_nodes.get(&child).ok_or(CritbitTreeError::NotFound)?.clone();
+            internal_node.parent = parent.clone();
             self.internal_nodes.insert(child, internal_node);
         }
         Ok(())
@@ -204,7 +202,7 @@ pub enum CritbitTreeError {
     AlreadyExist,
 }
 
-#[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
 pub struct InternalNode<K> {
     /// Mask for branching the tree based on the critbit.
     mask: K,
@@ -228,7 +226,7 @@ impl<K: CritbitTreeIndex> InternalNode<K> {
     }
 }
 
-#[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
 pub struct LeafNode<K, V> {
     /// Parent index of the node.
     parent: K,
@@ -275,7 +273,7 @@ macro_rules! impl_critbit_tree_index {
 
             fn new_mask(&self, closest_key: &Self) -> Self {
                 let critbit = <$higher_type>::from(self ^ closest_key);
-                let pos = <$type>::BITS - critbit.leading_zeros() - <$type>::BITS;
+                let pos = <$type>::BITS - (critbit.leading_zeros() - <$type>::BITS);
                 1 << (pos-1)
             }
         }
@@ -291,7 +289,25 @@ mod tests {
 
     #[test]
     fn test_critbit_tree() {
-        assert_eq!(u64::new_mask(0,1).leading_zeros(), 63)
+        assert_eq!(u64::new_mask(&0,&1).leading_zeros(), 63)
+    }
+
+    #[test]
+    fn insert_works() {
+        let mut tree = CritbitTree::<u64, u64>::new();
+        let k = 0x1000u64;
+        let v = 0u64;
+        tree.insert(k, v).unwrap();
+        assert_eq!(tree.size(), 1);
+        assert_eq!(tree.root, u64::MAX);
+        let k = 0x100u64;
+        let v = 0u64;
+        if let Err(e) = tree.insert(k, v) {
+            println!("Error: {:?}", e);
+        }
+        assert_eq!(tree.size(), 2);
+        assert_eq!(tree.root, 0u64);
+        println!("{:?}", tree);
     }
 }
 

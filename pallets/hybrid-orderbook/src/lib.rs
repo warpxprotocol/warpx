@@ -6,6 +6,7 @@ mod benchmarking;
 pub mod weights;
 pub use weights::*;
 mod critbit;
+use critbit::*;
 
 // #[cfg(test)]
 // mod mock;
