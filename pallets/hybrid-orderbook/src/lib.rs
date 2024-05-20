@@ -65,6 +65,9 @@ pub mod pallet {
 		/// The type in which the assets for swapping are measured.
 		type Balance: Balance;
 
+		/// The type of price which is used as index(key) of the orderbook.
+		type Price: CritbitTreeIndex + Parameter;
+
 		/// A type used for calculations concerning the `Balance` type to avoid possible overflows.
 		type HigherPrecisionBalance: IntegerSquareRoot
 			+ One
@@ -92,12 +95,12 @@ pub mod pallet {
 	}
 
 	#[pallet::storage]
-	#[pallet::getter(fn markets)]
+	#[pallet::getter(fn pools)]
 	#[pallet::unbounded]
 	pub type Pools<T: Config> = StorageMap<_, 
 		Twox64Concat, 
 		T::PoolId, 
-		Pool<T::Balance>
+		Pool<T::Price, T::Balance, T::AccountId, BlockNumberFor<T>>
 	>;
 
 	// Pallets use events to inform users when important changes are made.
