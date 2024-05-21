@@ -40,8 +40,8 @@ where
     pub fn new() -> Self {
         Self {
             root: K::PARTITION_INDEX,
-            internal_nodes: Default::default(),
-            leaves: Default::default(),
+            internal_nodes: BTreeMap::new(),
+            leaves: BTreeMap::new(),
             max_leaf_index: K::PARTITION_INDEX,
             min_leaf_index: K::PARTITION_INDEX,
             next_internal_node_index: Default::default(),
@@ -150,79 +150,122 @@ where
     /// Remove leaf for given `index`. 
     /// 
     /// **Index here indicates the index of the leaves**
-    fn remove_leaf_by_index(&mut self, index: &K) -> Result<(), CritbitTreeError> {
-        let leaf_node = self.leaves.get(index).ok_or(CritbitTreeError::NotFound)?;
-        if &self.min_leaf_index == index {
-            let (_, next_leaf_index) = self.next_leaf(&leaf_node.key)?
-                .ok_or(CritbitTreeError::RemoveNotAllowed)?;
-            self.min_leaf_index = next_leaf_index;
+    pub fn remove_leaf_by_index(&mut self, leaf_index: &K) -> Result<V, CritbitTreeError> {
+        let leaf_node = self.leaves.get(leaf_index).ok_or(CritbitTreeError::NotFound)?;
+        // Update min/max leaf index
+        let mut is_empty: bool = false;
+        if &self.min_leaf_index == leaf_index {
+            if let Some((_, next_leaf_index)) = self.next_leaf(&leaf_node.key)? {
+                self.min_leaf_index = next_leaf_index;
+            } else {
+                is_empty = true;
+            }
         }
-        if &self.max_leaf_index == index {
-            let (_, prev_leaf_index) = self.previous_leaf(&leaf_node.key)?
-                .ok_or(CritbitTreeError::RemoveNotAllowed)?;
-            self.max_leaf_index = prev_leaf_index;
+        if &self.max_leaf_index == leaf_index {
+            if let Some((_, prev_leaf_index)) = self.previous_leaf(&leaf_node.key)? {
+                self.max_leaf_index = prev_leaf_index;
+            } else {
+                is_empty = true;
+            }
         }
-        Ok(())
+        let LeafNode { value, parent: parent_index, .. } = self.leaves.remove(leaf_index).expect("We already check above");
+        if is_empty {
+            self.reset()
+        } else {
+            let parent_node = self.internal_nodes.get(&parent_index).ok_or(CritbitTreeError::InternalNodeShouldExist)?;
+            // Sibling node could be internal node or leaf
+            let sibling_node_index = if self.is_left_child(&parent_index, &(K::MAX_INDEX - *leaf_index)) {
+                parent_node.right
+            } else {
+                parent_node.left
+            };
+            let grand_parent_index = parent_node.parent;
+            if grand_parent_index == K::PARTITION_INDEX {
+                // Removed parent is root node
+                if sibling_node_index < K::PARTITION_INDEX {
+                    let mut sibling_node = self.internal_nodes
+                        .get_mut(&sibling_node_index)
+                        .ok_or(CritbitTreeError::InternalNodeShouldExist)?.clone();
+                    sibling_node.parent = K::PARTITION_INDEX;
+                    self.internal_nodes.insert(sibling_node_index, sibling_node);
+                } else {
+                    let mut sibling_node = self.leaves
+                        .get_mut(&(K::MAX_INDEX - sibling_node_index))
+                        .ok_or(CritbitTreeError::LeafNodeShouldExist)?.clone();
+                    sibling_node.parent = K::PARTITION_INDEX;
+                    self.leaves.insert(K::MAX_INDEX - sibling_node_index, sibling_node);
+                }
+                self.root = sibling_node_index;
+            } else {
+                // Removed parent of grandparent is internal node
+                let is_left_child = self.is_left_child(&grand_parent_index, &parent_index);
+                self.update_ref(grand_parent_index, sibling_node_index, is_left_child)?;
+            }
+            self.internal_nodes.remove(&parent_index);
+        }
+
+        Ok(value)
+    }
+
+    /// Reset the tree. 
+    fn reset(&mut self) {
+        self.root = K::PARTITION_INDEX;
+        self.min_leaf_index = K::PARTITION_INDEX;
+        self.max_leaf_index = K::PARTITION_INDEX;
+        self.next_internal_node_index = Zero::zero();
+        self.next_leaf_node_index = Zero::zero();
     }
 
     /// Find previous leaf for given key `K`. Return **(key, index)** where `index` indicates leaf index which is encoded as `K::MAX_INDEX - tree_index`
+    /// Return `None` if leaf node for given key is the minimum leaf node
     /// 
     /// **Key indicates the key of the leaf node.**
-    fn previous_leaf(&self, key: &K) -> Result<Option<(K, K)>, CritbitTreeError> {
-        if let Some(leaf_index) = self.find_leaf(key)? {
-            let mut parent_node_index = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?.parent;
-            let mut ptr = K::MAX_INDEX - leaf_index; 
-            while parent_node_index != K::PARTITION_INDEX && self.is_left_child(&parent_node_index, &ptr) {
-                ptr = parent_node_index;
-                parent_node_index = self.internal_nodes.get(&ptr).ok_or(CritbitTreeError::InternalNodeShouldExist)?.parent;
-            }
-            // This means previous leaf doesn't exist
-            if parent_node_index == K::PARTITION_INDEX {
-                return Ok(None)
-            }
-            let start_index = self.internal_nodes
-                .get(&parent_node_index)
-                .ok_or(CritbitTreeError::InternalNodeShouldExist)?
-                .left;
-            let leaf_index = K::MAX_INDEX - self.right_most_leaf(start_index)?;
-            let leaf_node = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
-            
-            Ok(Some((leaf_node.clone().key, leaf_index)))
-        } else {
-            // 1. Empty tree
-            // 2. Leaf node for given key doesn't exist
-            Ok(None)
+    pub fn previous_leaf(&self, key: &K) -> Result<Option<(K, K)>, CritbitTreeError> {
+        let leaf_index = self.find_leaf(key)?.ok_or(CritbitTreeError::NotFound)?;
+        let mut parent_node_index = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?.parent;
+        let mut ptr = K::MAX_INDEX - leaf_index; 
+        while parent_node_index != K::PARTITION_INDEX && self.is_left_child(&parent_node_index, &ptr) {
+            ptr = parent_node_index;
+            parent_node_index = self.internal_nodes.get(&ptr).ok_or(CritbitTreeError::InternalNodeShouldExist)?.parent;
         }
+        // This means previous leaf doesn't exist
+        if parent_node_index == K::PARTITION_INDEX {
+            return Ok(None)
+        }
+        let start_index = self.internal_nodes
+            .get(&parent_node_index)
+            .ok_or(CritbitTreeError::InternalNodeShouldExist)?
+            .left;
+        let leaf_index = K::MAX_INDEX - self.right_most_leaf(start_index)?;
+        let leaf_node = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
+        
+        Ok(Some((leaf_node.clone().key, leaf_index)))
     }
 
     /// Find next leaf for given key `K`. Return **(key, index)** where `index` indicates leaf index which is encoded as `K::MAX_INDEX - tree_index`
+    /// Return `None` if leaf node for given key is the maximum leaf node
     /// 
     /// **Key indicates the key of the leaf node.**
-    fn next_leaf(&self, key: &K) -> Result<Option<(K, K)>, CritbitTreeError> {
-        if let Some(leaf_index) = self.find_leaf(key)? {
-            let mut parent_node_index = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?.parent;
-            let mut ptr = K::MAX_INDEX - leaf_index; 
-            while parent_node_index != K::PARTITION_INDEX && !self.is_left_child(&parent_node_index, &ptr) {
-                ptr = parent_node_index;
-                parent_node_index = self.internal_nodes.get(&ptr).ok_or(CritbitTreeError::InternalNodeShouldExist)?.parent;
-            }
-            // This means previous leaf doesn't exist
-            if parent_node_index == K::PARTITION_INDEX {
-                return Ok(None)
-            }
-            let start_index = self.internal_nodes
-                .get(&parent_node_index)
-                .ok_or(CritbitTreeError::InternalNodeShouldExist)?
-                .right;
-            let leaf_index = K::MAX_INDEX - self.left_most_leaf(&start_index)?;
-            let leaf_node = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
-            
-            Ok(Some((leaf_node.clone().key, leaf_index)))
-        } else {
-            // 1. Empty tree
-            // 2. Leaf node for given key doesn't exist
-            Ok(None)
+    pub fn next_leaf(&self, key: &K) -> Result<Option<(K, K)>, CritbitTreeError> {
+        let leaf_index = self.find_leaf(key)?.ok_or(CritbitTreeError::NotFound)?;
+        let mut parent_node_index = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?.parent;
+        let mut ptr = K::MAX_INDEX - leaf_index; 
+        while parent_node_index != K::PARTITION_INDEX && !self.is_left_child(&parent_node_index, &ptr) {
+            ptr = parent_node_index;
+            parent_node_index = self.internal_nodes.get(&ptr).ok_or(CritbitTreeError::InternalNodeShouldExist)?.parent;
         }
+        // This means previous leaf doesn't exist
+        if parent_node_index == K::PARTITION_INDEX {
+            return Ok(None)
+        }
+        let start_index = self.internal_nodes
+            .get(&parent_node_index)
+            .ok_or(CritbitTreeError::InternalNodeShouldExist)?
+            .right;
+        let leaf_index = K::MAX_INDEX - self.left_most_leaf(&start_index)?;
+        let leaf_node = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
+        
+        Ok(Some((leaf_node.clone().key, leaf_index)))
     }
 
     /// Get the left most leaf index of the tree. Index indicates the index inside the tree.
@@ -255,7 +298,7 @@ where
     /// - `leaf_index` which indicates the index inside the leaf which is encoded as `K::MAX_INDEX - leaf_index`.
     /// - `K::PARTITION_INDEX`, if tree is empty
     /// - `None`, if key doesn't match with closest key
-    fn find_leaf(&self, key: &K) -> Result<Option<K>, CritbitTreeError> {
+    pub fn find_leaf(&self, key: &K) -> Result<Option<K>, CritbitTreeError> {
         if let Some(leaf_index) = self.get_closest_leaf_index(key)? {
             let leaf_node = self.leaves.get(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
             if &leaf_node.key != key {
@@ -287,7 +330,7 @@ where
         }
     }
 
-    /// Check if the index is the left child of the parent.
+    /// Check if the index is the left child of the parent. Index indicates index of the tree
     fn is_left_child(&self, parent: &K, child: &K) -> bool {
         if let Some(internal_node) = self.internal_nodes.get(parent) {
             return &internal_node.left == child
@@ -492,9 +535,6 @@ mod tests {
         let next_leaf = tree.next_leaf(&k1).unwrap();
         assert_eq!(previous_leaf, None);
         assert_eq!(next_leaf, None);
-
-        assert_eq!(tree.remove_leaf_by_index(&0), Err(CritbitTreeError::RemoveNotAllowed));
-
         println!("First Insertion => {:?}", tree);
 
         // Second insertion
@@ -519,8 +559,30 @@ mod tests {
         assert_eq!(tree.next_leaf(&k2).unwrap(), Some((k1, 0)));
 
         println!("{:?}", tree);
+    }
 
-        assert_eq!(tree.remove_leaf_by_index(&0), Ok(()));
+    #[test]
+    fn remove_works() {
+        let mut tree = CritbitTree::<u64, u64>::new();
+        // first insertion
+        let k_v: (u64, u64) = (0x1u64, 0);
+        tree.insert(k_v.0, k_v.1).unwrap();
+        assert_eq!(tree.remove_leaf_by_index(&0), Ok(0));
+        assert_eq!(tree.size(), 0);
+        assert_eq!(tree.is_empty(), true);
+        println!("Empty tree => {:?}", tree);
+        println!("--------------------------");
+        let k_v: Vec<(u64, u64)> = vec![(0x2u64, 1), (0x3u64, 2), (0x4u64, 3), (0x5u64, 4)];
+        for (k, v) in k_v.clone() {
+            tree.insert(k, v).unwrap();
+        }
+        assert_eq!(tree.size(), k_v.len());
+        println!("After insert 4 items => {:?}", tree);
+        println!("--------------------------");
+        tree.remove_leaf_by_index(&0).unwrap();
+        assert_eq!(tree.min_leaf().unwrap(), Some((0x3u64, 1)));
+        assert_eq!(tree.size(), k_v.len()-1);
+        println!("Delete left most leaf => {:?}", tree);
     }
 }
 

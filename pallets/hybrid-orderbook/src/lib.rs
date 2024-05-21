@@ -68,6 +68,9 @@ pub mod pallet {
 		/// The type of price which is used as index(key) of the orderbook.
 		type Price: CritbitTreeIndex + Parameter;
 
+		/// The type of order which is used in the orderbook.
+		type Order: Parameter;
+
 		/// A type used for calculations concerning the `Balance` type to avoid possible overflows.
 		type HigherPrecisionBalance: IntegerSquareRoot
 			+ One
@@ -100,7 +103,7 @@ pub mod pallet {
 	pub type Pools<T: Config> = StorageMap<_, 
 		Twox64Concat, 
 		T::PoolId, 
-		Pool<T::Price, T::Balance, T::AccountId, BlockNumberFor<T>>
+		Pool<T::Price, T::Order>
 	>;
 
 	// Pallets use events to inform users when important changes are made.
