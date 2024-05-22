@@ -36,6 +36,7 @@ sp-transaction-pool = { workspace = true }
 sp-version = { workspace = true }
 
 pallet-aura = { workspace = true }
+pallet-assets = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
 pallet-indices = { workspace = true }
@@ -87,6 +88,7 @@ std = [
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"pallet-aura/std",
+	"pallet-assets/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-indices/std",

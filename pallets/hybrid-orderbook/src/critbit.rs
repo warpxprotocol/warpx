@@ -1,6 +1,5 @@
 
-use sp_core::U256;
-use core::ops::BitAnd;
+use self::traits::OrderBookIndex;
 
 use super::*;
 
@@ -33,7 +32,7 @@ pub enum NodeKind {
 
 impl<K, V> CritbitTree<K, V> 
 where
-    K: CritbitTreeIndex,
+    K: OrderBookIndex,
     V: Clone + PartialOrd,
 {   
     /// Create new instance of the tree.
@@ -432,7 +431,7 @@ pub struct InternalNode<K> {
     right: K,
 }
 
-impl<K: CritbitTreeIndex> InternalNode<K> {
+impl<K: OrderBookIndex> InternalNode<K> {
     /// Create new instance of the interior node.
     pub fn new(mask: K) -> Self {
         InternalNode {
@@ -454,7 +453,7 @@ pub struct LeafNode<K, V> {
     value: V
 }
 
-impl<K: CritbitTreeIndex, V> LeafNode<K, V> {
+impl<K: OrderBookIndex, V> LeafNode<K, V> {
     /// Create new instance of the leaf node.
     pub fn new(key: K, value: V) -> Self {
         LeafNode {
@@ -465,42 +464,24 @@ impl<K: CritbitTreeIndex, V> LeafNode<K, V> {
     }
 }
 
-/// Index trait for the critbit tree.
-pub trait CritbitTreeIndex: sp_std::fmt::Debug + Default + AtLeast32BitUnsigned + Copy + BitAnd<Output=Self> {
-    /// Maximum index value.
-    const MAX_INDEX: Self;
-    /// Partition index value. This index is for partitioning between internal and leaf nodes.
-    /// Index of the internal nodes is always less than `PARTITION_INDEX`.
-    /// While index of the leaf nodes is always greater than or equal to `PARTITION_INDEX`.
-    const PARTITION_INDEX: Self;
-    /// Maximum number of leaf nodes that can be stored in the tree.
-    const CAPACITY: Self;
+impl<Index: OrderBookIndex, Order: Clone + PartialOrd> OrderBook for CritbitTree<Index, Order> {
 
-    /// Calculate new mask. 
-    /// First, find the position(pos) of the most significant bit in the XOR of the two indexes.
-    /// Then, right shift the mask by that position(e.g. 1 << pos).
-    fn new_mask(&self, closest_key: &Self) -> Self;
-}
+    type Index = Index;
+    type Order = Order;
+    type OrderId = OrderId;
 
-macro_rules! impl_critbit_tree_index {
-    ($type: ty, $higher_type: ty) => {
-        impl CritbitTreeIndex for $type {
-            const MAX_INDEX: Self = <$type>::MAX;
-            const PARTITION_INDEX: Self = 1 << (<$type>::BITS - 1);
-            const CAPACITY: Self = <$type>::MAX_INDEX - <$type>::PARTITION_INDEX;
+    fn new() -> Self {
+        CritbitTree::new()
+    }
 
-            fn new_mask(&self, closest_key: &Self) -> Self {
-                let critbit = <$higher_type>::from(self ^ closest_key);
-                let pos = <$type>::BITS - (critbit.leading_zeros() - <$type>::BITS);
-                1 << (pos-1)
-            }
-        }
+    fn new_order(&mut self, order: Order) -> Result<(), DispatchError> {
+        Ok(())
+    }
+
+    fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), DispatchError> {
+        Ok(())
     }
 }
-
-impl_critbit_tree_index!(u32, u64);
-impl_critbit_tree_index!(u64, u128);
-impl_critbit_tree_index!(u128, U256);
 
 mod tests {
     use super::*;

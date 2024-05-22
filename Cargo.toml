@@ -18,6 +18,8 @@ panic = "unwind"
 
 [workspace.dependencies]
 
+log = { version = "0.4.21", default-features = false }
+
 # System
 frame-support = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 frame-system = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
@@ -48,6 +50,7 @@ node-primitives = { version = "28.0.0", default-features = false, git = "https:/
 # FRAMES
 pallet-aura = { version = "27.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-assets = { version = "29.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
+pallet-asset-conversion = { version = "10.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-balances = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-grandpa = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-indices = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
