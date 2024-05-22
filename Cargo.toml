@@ -1,5 +1,5 @@
 [workspace.package]
-authors = ["Team Hanaverse"]
+authors = ["Team "]
 edition = "2021"
 repository = "https://github.com/Hanaverse/hanaverse"
 license = "MIT-0"

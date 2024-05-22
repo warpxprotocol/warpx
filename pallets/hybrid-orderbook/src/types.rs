@@ -52,10 +52,8 @@ pub struct PoolInfo<PoolAssetId> {
 #[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct Pool<T: Config> {
-    /// The amount of the base asset.
-    base_amount: T::OrderBookIndex,
-    /// The amount of the quote asset.
-    quote_amount: T::OrderBookIndex,
+    /// Liquidity pool asset
+	pub lp_token: T::PoolAssetId,
     /// The orderbook of the bid.
     bids: T::OrderBook,
     /// The orderbook of the ask.
@@ -69,6 +67,26 @@ pub struct Pool<T: Config> {
     tick_size: T::OrderBookIndex, 
     /// The minimum amount of the order.
     lot_size: T::OrderBookIndex,
+}
+
+impl<T: Config> Pool<T> {
+    pub fn new(
+        lp_token: T::PoolAssetId,
+        taker_fee_rate: Permill, 
+        tick_size: T::OrderBookIndex,
+        lot_size: T::OrderBookIndex,
+    ) -> Self {
+        Self {
+            lp_token,
+            bids: T::OrderBook::new(),
+            asks: T::OrderBook::new(),
+            next_bid_order_id: 0,
+            next_ask_order_id: 0,
+            taker_fee_rate,
+            tick_size,
+            lot_size,
+        }
+    }
 }
 
 /// Provides means to resolve the `PoolId` and `AccountId` from a pair of assets.

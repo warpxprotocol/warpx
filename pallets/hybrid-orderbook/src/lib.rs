@@ -102,11 +102,8 @@ use sp_std::{boxed::Box, collections::{btree_set::BTreeSet, btree_map::BTreeMap}
 pub mod pallet {
 
 	use super::*;
-	use frame_support::{
-		pallet_prelude::{DispatchResult, *},
-	};
+	use frame_support::pallet_prelude::{DispatchResult, *};
 	use frame_system::pallet_prelude::*;
-	use runtime_decl_for_asset_conversion_api::traits::OrderBook;
 	use sp_arithmetic::{traits::Unsigned, Permill};
 
 	#[pallet::pallet]
@@ -378,6 +375,9 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset1: Box<T::AssetKind>,
 			asset2: Box<T::AssetKind>,
+			taker_fee_rate: Permill,
+			tick_size: T::OrderBookIndex,
+			lot_size: T::OrderBookIndex,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 			ensure!(asset1 != asset2, Error::<T>::InvalidAssetPair);
@@ -414,8 +414,8 @@ pub mod pallet {
 				T::PoolAssets::touch(lp_token.clone(), &pool_account, &sender)?
 			};
 
-			let pool_info = PoolInfo { lp_token: lp_token.clone() };
-			Pools::<T>::insert(pool_id.clone(), pool_info);
+			let pool = Pool::<T>::new(lp_token.clone(), taker_fee_rate, tick_size, lot_size);
+			Pools::<T>::insert(pool_id.clone(), pool);
 
 			Self::deposit_event(Event::PoolCreated {
 				creator: sender,
