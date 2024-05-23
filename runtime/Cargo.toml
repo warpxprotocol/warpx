@@ -16,7 +16,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive"] }
 scale-info = { version = "2.10.0", default-features = false, features = ["derive"] }
 
-frame-support = { workspace = true }
+frame-support = { workspace = true, features = ["experimental", "tuples-96"] }
 frame-system = { workspace = true }
 frame-try-runtime = { workspace = true, optional = true }
 frame-executive = { workspace = true }
@@ -40,6 +40,7 @@ pallet-assets = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-grandpa = { workspace = true }
 pallet-indices = { workspace = true }
+pallet-example-tasks = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
@@ -59,13 +60,14 @@ pallet-hybrid-orderbook = { version = "4.0.0-dev", path = "../pallets/hybrid-ord
 xcm = { workspace = true }
 
 [build-dependencies]
-substrate-wasm-builder = { version = "5.0.0-dev", git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.6.0", optional = true }
+substrate-wasm-builder = { version = "17.0.0", git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0", optional = true }
 
 [features]
 default = ["std"]
 std = [
 	"codec/std",
 	"scale-info/std",
+	"substrate-wasm-builder",
 	"frame-try-runtime?/std",
 	"frame-system-benchmarking?/std",
 	"frame-benchmarking?/std",
@@ -92,12 +94,13 @@ std = [
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-indices/std",
+	"pallet-example-tasks/std",
 	"pallet-sudo/std",
 	"pallet-hybrid-orderbook/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
-	"substrate-wasm-builder",
+	"xcm/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -123,4 +126,9 @@ try-runtime = [
 	"pallet-hybrid-orderbook/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
+]
+experimental = [
+	"frame-support/experimental",
+	"frame-system/experimental",
+	"pallet-example-tasks/experimental",
 ]

@@ -3,7 +3,7 @@ use self::traits::OrderBookIndex;
 
 use super::*;
 
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct CritbitTree<K, V> {
     /// Index of the root node which is part of the internal nodes.
     root: K,
@@ -419,7 +419,7 @@ pub enum CritbitTreeError {
     RemoveNotAllowed
 }
 
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct InternalNode<K> {
     /// Mask for branching the tree based on the critbit.
     mask: K,
@@ -443,7 +443,7 @@ impl<K: OrderBookIndex> InternalNode<K> {
     }
 }
 
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct LeafNode<K, V> {
     /// Parent index of the node.
     parent: K,

@@ -1,26 +1,27 @@
 [package]
-name = "hanaverse"
+name = "hanaverse-node"
 version = "4.0.0-dev"
-description = "A fresh FRAME-based Substrate node, ready for hacking."
+description = "A minimal FRAME-based Substrate node"
 license = "MIT-0"
 build = "build.rs"
 authors.workspace = true
 homepage.workspace = true
 edition.workspace = true
-publish = false
 repository.workspace = true
+publish = false
 
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [[bin]]
-name = "hanaverse"
+name = "hanaverse-node"
 
 [dependencies]
 clap = { version = "4.4.2", features = ["derive"] }
 futures = { version = "0.3.21", features = ["thread-pool"]}
-serde_json = "1.0.111"
+serde_json = { workspace = true, default-features = true }
+jsonrpsee = { version = "0.22", features = ["server"] }
 
 sc-cli = { workspace = true }
 sp-core = { workspace = true }
@@ -48,7 +49,6 @@ frame-system = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 
 # These dependencies are used for the node template's RPCs
-jsonrpsee = { version = "0.16.2", features = ["server"] }
 sp-api = { workspace = true }
 sc-rpc-api = { workspace = true }
 sp-blockchain = { workspace = true }

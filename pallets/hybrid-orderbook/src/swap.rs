@@ -113,7 +113,7 @@ pub trait SwapCredit<AccountId> {
 }
 
 impl<T: Config> Swap<T::AccountId> for Pallet<T> {
-	type Balance = T::Balance;
+	type Balance = T::Unit;
 	type AssetKind = T::AssetKind;
 
 	fn max_path_len() -> u32 {
@@ -164,7 +164,7 @@ impl<T: Config> Swap<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config> SwapCredit<T::AccountId> for Pallet<T> {
-	type Balance = T::Balance;
+	type Balance = T::Unit;
 	type AssetKind = T::AssetKind;
 	type Credit = CreditOf<T>;
 

@@ -7,7 +7,7 @@
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 mod constants;
-use constants::{currency::*, time::*};
+pub use constants::{currency::*, time::*};
 
 // Primtivies
 use sp_api::impl_runtime_apis;
@@ -15,7 +15,7 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify},
+	traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify, AccountIdConversion},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
@@ -28,14 +28,14 @@ pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
 // System
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EnsureSignedBy, EnsureSigned};
 pub use frame_support::{
-	construct_runtime, derive_impl, parameter_types,
+	construct_runtime, derive_impl, parameter_types, ord_parameter_types,
 	genesis_builder_helper::{build_config, create_default_config},
 	traits::{
 		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness,
 		StorageInfo, AsEnsureOriginWithArg, 
-		fungible::NativeOrWithId,
+		fungible::{NativeOrWithId, NativeFromLeft, UnionOf},
 		tokens::imbalance::ResolveAssetTo
 	},
 	weights::{
@@ -45,7 +45,7 @@ pub use frame_support::{
 		IdentityFee, Weight,
 	},
 	instances::{Instance1, Instance2},
-	StorageValue,
+	StorageValue, PalletId
 };
 pub use frame_system::Call as SystemCall;
 
@@ -54,14 +54,17 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 use pallet_grandpa::AuthorityId as GrandpaId;
-use pallet_hybrid_orderbook::{Pool, CritbitTree};
+use pallet_hybrid_orderbook::{Pool, CritbitTree, Tick, WithFirstAsset, Ascending, Chain};
 
-use primitives::*;
+pub use primitives::*;
 pub mod primitives {
 
 	use super::*;
 	/// An index to a block.
 	pub type BlockNumber = u32;
+
+	/// Type used for expressing timestamp.
+	pub type Moment = u64;
 
 	/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 	pub type Signature = MultiSignature;
@@ -71,7 +74,7 @@ pub mod primitives {
 	pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
 	/// Balance of an account.
-	pub type Balance = u128;
+	pub type Balance = u64;
 
 	/// Index of a transaction in the chain.
 	pub type Nonce = u32;
@@ -113,26 +116,18 @@ pub mod opaque {
 	}
 }
 
-// To learn more about runtime versioning, see:
-// https://docs.substrate.io/main-docs/build/upgrade#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("hanaverse-fi"),
 	impl_name: create_runtime_str!("hanaverse-fi"),
 	authoring_version: 1,
-	// The version of the runtime specification. A full node will not attempt to use its native
-	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
-	//   `spec_version`, and `authoring_version` are the same between Wasm and native.
-	// This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
-	//   the compatible custom types.
-	spec_version: 100,
+	spec_version: 10000,
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
 	state_version: 1,
 };
 
-/// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
 	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
@@ -268,7 +263,7 @@ impl pallet_assets::Config<Instance1> for Runtime {
 	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
 	type ForceOrigin = EnsureRoot<AccountId>;
 	type AssetDeposit = AssetDeposit;
-	type AssetAccountDeposit = ConstU128<DOLLARS>;
+	type AssetAccountDeposit = ConstU64<DOLLARS>;
 	type MetadataDepositBase = MetadataDepositBase;
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = ApprovalDeposit;
@@ -282,20 +277,16 @@ impl pallet_assets::Config<Instance1> for Runtime {
 	type BenchmarkHelper = ();
 }
 
-ord_parameter_types! {
-	pub const AssetConversionOrigin: AccountId = AccountIdConversion::<AccountId>::into_account_truncating(&AssetConversionPalletId::get());
-}
-
 impl pallet_assets::Config<Instance2> for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
 	type AssetId = AssetId;
 	type AssetIdParameter = codec::Compact<u32>;
 	type Currency = Balances;
-	type CreateOrigin = AsEnsureOriginWithArg<EnsureSignedBy<AssetConversionOrigin, AccountId>>;
+	type CreateOrigin = AsEnsureOriginWithArg<EnsureSignedBy<HybridOrderBookOrigin, AccountId>>;
 	type ForceOrigin = EnsureRoot<AccountId>;
 	type AssetDeposit = AssetDeposit;
-	type AssetAccountDeposit = ConstU128<DOLLARS>;
+	type AssetAccountDeposit = ConstU64<DOLLARS>;
 	type MetadataDepositBase = MetadataDepositBase;
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = ApprovalDeposit;
@@ -310,21 +301,24 @@ impl pallet_assets::Config<Instance2> for Runtime {
 }
 
 parameter_types! {
-	pub const AssetConversionPalletId: PalletId = PalletId(*b"py/ascon");
+	pub const HybridOrderBookPalletId: PalletId = PalletId(*b"hyammord");
 	pub const PoolSetupFee: Balance = 1 * DOLLARS; // should be more or equal to the existential deposit
 	pub const MintMinLiquidity: Balance = 100;  // 100 is good enough when the main currency has 10-12 decimals.
 	pub const LiquidityWithdrawalFee: Permill = Permill::from_percent(0);
 	pub const Native: NativeOrWithId<u32> = NativeOrWithId::Native;
 }
 
+ord_parameter_types! {
+	pub const HybridOrderBookOrigin: AccountId = AccountIdConversion::<AccountId>::into_account_truncating(&HybridOrderBookPalletId::get());
+}
+
 impl pallet_hybrid_orderbook::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Balance = Balance;
-	type HigherPrecisionBalance = sp_core::U256;
+	type Unit = Balance;
+	type HigherPrecisionBalance = u128;
 	type AssetKind = NativeOrWithId<u32>;
 	type Assets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
-	type OrderBook = CritbitTree;
-	type OrderBookIndex = Balance;
+	type OrderBook = CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>;
 	type PoolId = (Self::AssetKind, Self::AssetKind);
 	type PoolLocator = Chain<
 		WithFirstAsset<Native, AccountId, NativeOrWithId<u32>>,
@@ -334,11 +328,11 @@ impl pallet_hybrid_orderbook::Config for Runtime {
 	type PoolAssets = PoolAssets;
 	type PoolSetupFee = PoolSetupFee;
 	type PoolSetupFeeAsset = Native;
-	type PoolSetupFeeTarget = ResolveAssetTo<AssetConversionOrigin, Self::Assets>;
-	type PalletId = AssetConversionPalletId;
+	type PoolSetupFeeTarget = ResolveAssetTo<HybridOrderBookOrigin, Self::Assets>;
+	type PalletId = HybridOrderBookPalletId;
 	type LPFee = ConstU32<3>; // means 0.3%
 	type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
-	type WeightInfo = pallet_asset_conversion::weights::SubstrateWeight<Runtime>;
+	type WeightInfo = pallet_hybrid_orderbook::weights::SubstrateWeight<Runtime>;
 	type MaxSwapPathLength = ConstU32<4>;
 	type MintMinLiquidity = MintMinLiquidity;
 	#[cfg(feature = "runtime-benchmarks")]
@@ -390,9 +384,6 @@ mod runtime {
 
 	#[runtime::pallet_index(39)]
 	pub type PoolAssets = pallet_assets<Instance2>;
-
-	#[runtime::pallet_index(40)]
-	pub type AssetConversion = pallet_asset_conversion;
 
 	#[runtime::pallet_index(50)]
 	pub type HybridOrderbook = pallet_hybrid_orderbook;
@@ -462,7 +453,7 @@ impl_runtime_apis! {
 			Executive::execute_block(block);
 		}
 
-		fn initialize_block(header: &<Block as BlockT>::Header) {
+		fn initialize_block(header: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
 			Executive::initialize_block(header)
 		}
 	}
@@ -524,7 +515,7 @@ impl_runtime_apis! {
 		}
 
 		fn authorities() -> Vec<AuraId> {
-			Aura::authorities().into_inner()
+			pallet_aura::Authorities::<Runtime>::get().into_inner()
 		}
 	}
 

@@ -20,7 +20,7 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{TryConvert, AtLeast32BitUnsigned};
-use sp_core::U256;
+use sp_core::{RuntimeDebug, U256};
 use core::ops::BitAnd;
 
 pub use traits::{OrderBook, OrderBookIndex};
@@ -36,7 +36,7 @@ pub type OrderId = u64;
 /// 1. `asset(asset1, amount_in)` take from `user` and move to the pool(asset1, asset2);
 /// 2. `asset(asset2, amount_out2)` transfer from pool(asset1, asset2) to pool(asset2, asset3);
 /// 3. `asset(asset3, amount_out3)` move from pool(asset2, asset3) to `user`.
-pub(super) type BalancePath<T> = Vec<(<T as Config>::AssetKind, <T as Config>::Balance)>;
+pub(super) type BalancePath<T> = Vec<(<T as Config>::AssetKind, <T as Config>::Unit)>;
 
 /// Credit of [Config::Assets].
 pub type CreditOf<T> = Credit<<T as frame_system::Config>::AccountId, <T as Config>::Assets>;
@@ -48,6 +48,19 @@ pub struct PoolInfo<PoolAssetId> {
 	pub lp_token: PoolAssetId,
 }
 
+#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, PartialOrd, RuntimeDebug, TypeInfo)]
+pub struct Tick<Quantity, Account, BlockNumber> {
+    open_orders: BTreeMap<OrderId, Order<Quantity, Account, BlockNumber>>,
+}
+
+/// The order of the orderbook.
+#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, PartialOrd, RuntimeDebug, TypeInfo)]
+pub struct Order<Quantity, Account, BlockNumber> {
+    quantity: Quantity,
+    owner: Account,
+    expired_at: BlockNumber,
+}
+
 /// Detail of the pool 
 #[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
@@ -55,26 +68,27 @@ pub struct Pool<T: Config> {
     /// Liquidity pool asset
 	pub lp_token: T::PoolAssetId,
     /// The orderbook of the bid.
-    bids: T::OrderBook,
+    pub bids: T::OrderBook,
     /// The orderbook of the ask.
-    asks: T::OrderBook,
-    next_bid_order_id: OrderId,
+    pub asks: T::OrderBook,
+    /// The next order id of the bid.
+    pub next_bid_order_id: OrderId,
     /// The next order id of the ask.
-    next_ask_order_id: OrderId,
+    pub next_ask_order_id: OrderId,
     /// The fee rate of the taker.
-    taker_fee_rate: Permill,
+    pub taker_fee_rate: Permill,
     /// The size of each tick.
-    tick_size: T::OrderBookIndex, 
+    pub tick_size: T::Unit, 
     /// The minimum amount of the order.
-    lot_size: T::OrderBookIndex,
+    pub lot_size: T::Unit,
 }
 
 impl<T: Config> Pool<T> {
     pub fn new(
         lp_token: T::PoolAssetId,
         taker_fee_rate: Permill, 
-        tick_size: T::OrderBookIndex,
-        lot_size: T::OrderBookIndex,
+        tick_size: T::Unit,
+        lot_size: T::Unit,
     ) -> Self {
         Self {
             lp_token,
@@ -117,59 +131,49 @@ pub trait PoolLocator<AccountId, AssetKind, PoolId> {
 ///
 /// The `PoolId` is represented as a tuple of `AssetKind`s with `FirstAsset` always positioned as
 /// the first element.
-pub struct WithFirstAsset<FirstAsset, AccountId, AssetKind, AccountIdConverter>(
-	PhantomData<(FirstAsset, AccountId, AssetKind, AccountIdConverter)>,
+pub struct WithFirstAsset<FirstAsset, AccountId, AssetKind>(
+	PhantomData<(FirstAsset, AccountId, AssetKind)>,
 );
-impl<FirstAsset, AccountId, AssetKind, AccountIdConverter>
-	PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)>
-	for WithFirstAsset<FirstAsset, AccountId, AssetKind, AccountIdConverter>
+impl<FirstAsset, AccountId, AssetKind> PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)>
+	for WithFirstAsset<FirstAsset, AccountId, AssetKind>
 where
 	AssetKind: Eq + Clone + Encode,
 	AccountId: Decode,
 	FirstAsset: Get<AssetKind>,
-	AccountIdConverter: for<'a> TryConvert<&'a (AssetKind, AssetKind), AccountId>,
 {
 	fn pool_id(asset1: &AssetKind, asset2: &AssetKind) -> Result<(AssetKind, AssetKind), ()> {
-		if asset1 == asset2 {
-			return Err(());
-		}
 		let first = FirstAsset::get();
-		if first == *asset1 {
-			Ok((first, asset2.clone()))
-		} else if first == *asset2 {
-			Ok((first, asset1.clone()))
-		} else {
-			Err(())
+		match true {
+			_ if asset1 == asset2 => Err(()),
+			_ if first == *asset1 => Ok((first, asset2.clone())),
+			_ if first == *asset2 => Ok((first, asset1.clone())),
+			_ => Err(()),
 		}
 	}
 	fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
-		AccountIdConverter::try_convert(id).map_err(|_| ())
+		let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+		Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
 	}
 }
 
 /// Pool locator where the `PoolId` is a tuple of `AssetKind`s arranged in ascending order.
-pub struct Ascending<AccountId, AssetKind, AccountIdConverter>(
-	PhantomData<(AccountId, AssetKind, AccountIdConverter)>,
-);
-impl<AccountId, AssetKind, AccountIdConverter>
-	PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)>
-	for Ascending<AccountId, AssetKind, AccountIdConverter>
+pub struct Ascending<AccountId, AssetKind>(PhantomData<(AccountId, AssetKind)>);
+impl<AccountId, AssetKind> PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)>
+	for Ascending<AccountId, AssetKind>
 where
 	AssetKind: Ord + Clone + Encode,
 	AccountId: Decode,
-	AccountIdConverter: for<'a> TryConvert<&'a (AssetKind, AssetKind), AccountId>,
 {
 	fn pool_id(asset1: &AssetKind, asset2: &AssetKind) -> Result<(AssetKind, AssetKind), ()> {
-		if asset1 > asset2 {
-			Ok((asset2.clone(), asset1.clone()))
-		} else if asset1 < asset2 {
-			Ok((asset1.clone(), asset2.clone()))
-		} else {
-			Err(())
+		match true {
+			_ if asset1 > asset2 => Ok((asset2.clone(), asset1.clone())),
+			_ if asset1 < asset2 => Ok((asset1.clone(), asset2.clone())),
+			_ => Err(()),
 		}
 	}
 	fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
-		AccountIdConverter::try_convert(id).map_err(|_| ())
+		let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+		Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
 	}
 }
 

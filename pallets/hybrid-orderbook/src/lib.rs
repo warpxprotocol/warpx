@@ -114,31 +114,30 @@ pub mod pallet {
 		/// Overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-		/// The type in which the assets for swapping are measured.
-		type Balance: Balance;
+		/// The type which is used as `key` in `T::OrderBook`, `amount of Reserve`, `quantity of order`, etc..
+		type Unit: Balance + OrderBookIndex;
 
-		/// A type used for calculations concerning the `Balance` type to avoid possible overflows.
-		type HigherPrecisionBalance: IntegerSquareRoot
+		/// A type used for calculations concerning the `Unit` type to avoid possible overflows.
+		type HigherPrecisionUnit: IntegerSquareRoot
 			+ One
 			+ Ensure
 			+ Unsigned
 			+ From<u32>
-			+ From<Self::Balance>
-			+ TryInto<Self::Balance>;
+			+ From<Self::Unit>
+			+ TryInto<Self::Unit>;
 
 		/// Type of asset class, sourced from [`Config::Assets`], utilized to offer liquidity to a
 		/// pool.
 		type AssetKind: Parameter + MaxEncodedLen;
 
 		/// Registry of assets utilized for providing liquidity to pools.
-		type Assets: Inspect<Self::AccountId, AssetId = Self::AssetKind, Balance = Self::Balance>
+		type Assets: Inspect<Self::AccountId, AssetId = Self::AssetKind, Balance = Self::Unit>
 			+ Mutate<Self::AccountId>
-			+ AccountTouch<Self::AssetKind, Self::AccountId, Balance = Self::Balance>
+			+ AccountTouch<Self::AssetKind, Self::AccountId, Balance = Self::Unit>
 			+ Balanced<Self::AccountId>;
 
+		/// Type of data structure of orderbook
 		type OrderBook: OrderBook + Parameter;
-
-		type OrderBookIndex: OrderBookIndex + Parameter;
 
 		/// Liquidity pool identifier.
 		type PoolId: Parameter + MaxEncodedLen + Ord;
@@ -154,10 +153,10 @@ pub mod pallet {
 
 		/// Registry for the lp tokens. Ideally only this pallet should have create permissions on
 		/// the assets.
-		type PoolAssets: Inspect<Self::AccountId, AssetId = Self::PoolAssetId, Balance = Self::Balance>
+		type PoolAssets: Inspect<Self::AccountId, AssetId = Self::PoolAssetId, Balance = Self::Unit>
 			+ Create<Self::AccountId>
 			+ Mutate<Self::AccountId>
-			+ AccountTouch<Self::PoolAssetId, Self::AccountId, Balance = Self::Balance>;
+			+ AccountTouch<Self::PoolAssetId, Self::AccountId, Balance = Self::Unit>;
 
 		/// A % the liquidity providers will take of every swap. Represents 10ths of a percent.
 		#[pallet::constant]
@@ -165,7 +164,7 @@ pub mod pallet {
 
 		/// A one-time fee to setup the pool.
 		#[pallet::constant]
-		type PoolSetupFee: Get<Self::Balance>;
+		type PoolSetupFee: Get<Self::Unit>;
 
 		/// Asset class from [`Config::Assets`] used to pay the [`Config::PoolSetupFee`].
 		#[pallet::constant]
@@ -180,7 +179,7 @@ pub mod pallet {
 
 		/// The minimum LP token amount that could be minted. Ameliorates rounding errors.
 		#[pallet::constant]
-		type MintMinLiquidity: Get<Self::Balance>;
+		type MintMinLiquidity: Get<Self::Unit>;
 
 		/// The max number of hops in a swap.
 		#[pallet::constant]
@@ -226,6 +225,12 @@ pub mod pallet {
 			/// The id of the liquidity tokens that will be minted when assets are added to this
 			/// pool.
 			lp_token: T::PoolAssetId,
+			/// The fee rate of the taker.
+			taker_fee_rate: Permill,
+			/// The tick size of the orderbook.
+			tick_size: T::Unit,
+			/// The lot size of the orderbook.
+			lot_size: T::Unit,
 		},
 
 		/// A successful call of the `AddLiquidity` extrinsic will create this event.
@@ -237,13 +242,13 @@ pub mod pallet {
 			/// The pool id of the pool that the liquidity was added to.
 			pool_id: T::PoolId,
 			/// The amount of the first asset that was added to the pool.
-			amount1_provided: T::Balance,
+			amount1_provided: T::Unit,
 			/// The amount of the second asset that was added to the pool.
-			amount2_provided: T::Balance,
+			amount2_provided: T::Unit,
 			/// The id of the lp token that was minted.
 			lp_token: T::PoolAssetId,
 			/// The amount of lp tokens that were minted of that id.
-			lp_token_minted: T::Balance,
+			lp_token_minted: T::Unit,
 		},
 
 		/// A successful call of the `RemoveLiquidity` extrinsic will create this event.
@@ -255,13 +260,13 @@ pub mod pallet {
 			/// The pool id that the liquidity was removed from.
 			pool_id: T::PoolId,
 			/// The amount of the first asset that was removed from the pool.
-			amount1: T::Balance,
+			amount1: T::Unit,
 			/// The amount of the second asset that was removed from the pool.
-			amount2: T::Balance,
+			amount2: T::Unit,
 			/// The id of the lp token that was burned.
 			lp_token: T::PoolAssetId,
 			/// The amount of lp tokens that were burned of that id.
-			lp_token_burned: T::Balance,
+			lp_token_burned: T::Unit,
 			/// Liquidity withdrawal fee (%).
 			withdrawal_fee: Permill,
 		},
@@ -273,9 +278,9 @@ pub mod pallet {
 			/// The account that the assets were transferred to.
 			send_to: T::AccountId,
 			/// The amount of the first asset that was swapped.
-			amount_in: T::Balance,
+			amount_in: T::Unit,
 			/// The amount of the second asset that was received.
-			amount_out: T::Balance,
+			amount_out: T::Unit,
 			/// The route of asset IDs with amounts that the swap went through.
 			/// E.g. (A, amount_in) -> (Dot, amount_out) -> (B, amount_out)
 			path: BalancePath<T>,
@@ -283,9 +288,9 @@ pub mod pallet {
 		/// Assets have been converted from one to another.
 		SwapCreditExecuted {
 			/// The amount of the first asset that was swapped.
-			amount_in: T::Balance,
+			amount_in: T::Unit,
 			/// The amount of the second asset that was received.
-			amount_out: T::Balance,
+			amount_out: T::Unit,
 			/// The route of asset IDs with amounts that the swap went through.
 			/// E.g. (A, amount_in) -> (Dot, amount_out) -> (B, amount_out)
 			path: BalancePath<T>,
@@ -350,6 +355,10 @@ pub mod pallet {
 		IncorrectPoolAssetId,
 		/// The destination account cannot exist with the swapped funds.
 		BelowMinimum,
+		/// The order price must be a multiple of the tick size.
+		InvalidOrderPrice,
+		/// The order quantity must be a multiple of the lot size.
+		InvalidOrderQuantity,
 	}
 
 	#[pallet::hooks]
@@ -376,8 +385,8 @@ pub mod pallet {
 			asset1: Box<T::AssetKind>,
 			asset2: Box<T::AssetKind>,
 			taker_fee_rate: Permill,
-			tick_size: T::OrderBookIndex,
-			lot_size: T::OrderBookIndex,
+			tick_size: T::Unit,
+			lot_size: T::Unit,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 			ensure!(asset1 != asset2, Error::<T>::InvalidAssetPair);
@@ -422,6 +431,9 @@ pub mod pallet {
 				pool_id,
 				pool_account,
 				lp_token,
+				taker_fee_rate,
+				tick_size,
+				lot_size
 			});
 
 			Ok(())
@@ -447,10 +459,10 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset1: Box<T::AssetKind>,
 			asset2: Box<T::AssetKind>,
-			amount1_desired: T::Balance,
-			amount2_desired: T::Balance,
-			amount1_min: T::Balance,
-			amount2_min: T::Balance,
+			amount1_desired: T::Unit,
+			amount2_desired: T::Unit,
+			amount1_min: T::Unit,
+			amount2_min: T::Unit,
 			mint_to: T::AccountId,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -470,8 +482,8 @@ pub mod pallet {
 			let reserve1 = Self::get_balance(&pool_account, *asset1.clone());
 			let reserve2 = Self::get_balance(&pool_account, *asset2.clone());
 
-			let amount1: T::Balance;
-			let amount2: T::Balance;
+			let amount1: T::Unit;
+			let amount2: T::Unit;
 			if reserve1.is_zero() || reserve2.is_zero() {
 				amount1 = amount1_desired;
 				amount2 = amount2_desired;
@@ -514,7 +526,7 @@ pub mod pallet {
 
 			let total_supply = T::PoolAssets::total_issuance(pool.lp_token.clone());
 
-			let lp_token_amount: T::Balance;
+			let lp_token_amount: T::Unit;
 			if total_supply.is_zero() {
 				lp_token_amount = Self::calc_lp_amount_for_zero_supply(&amount1, &amount2)?;
 				T::PoolAssets::mint_into(
@@ -557,9 +569,9 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset1: Box<T::AssetKind>,
 			asset2: Box<T::AssetKind>,
-			lp_token_burn: T::Balance,
-			amount1_min_receive: T::Balance,
-			amount2_min_receive: T::Balance,
+			lp_token_burn: T::Unit,
+			amount1_min_receive: T::Unit,
+			amount2_min_receive: T::Unit,
 			withdraw_to: T::AccountId,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -633,8 +645,8 @@ pub mod pallet {
 		pub fn swap_exact_tokens_for_tokens(
 			origin: OriginFor<T>,
 			path: Vec<Box<T::AssetKind>>,
-			amount_in: T::Balance,
-			amount_out_min: T::Balance,
+			amount_in: T::Unit,
+			amount_out_min: T::Unit,
 			send_to: T::AccountId,
 			keep_alive: bool,
 		) -> DispatchResult {
@@ -661,8 +673,8 @@ pub mod pallet {
 		pub fn swap_tokens_for_exact_tokens(
 			origin: OriginFor<T>,
 			path: Vec<Box<T::AssetKind>>,
-			amount_out: T::Balance,
-			amount_in_max: T::Balance,
+			amount_out: T::Unit,
+			amount_in_max: T::Unit,
 			send_to: T::AccountId,
 			keep_alive: bool,
 		) -> DispatchResult {
@@ -720,9 +732,104 @@ pub mod pallet {
 			Self::deposit_event(Event::Touched { pool_id, who });
 			Ok(Some(T::WeightInfo::touch(refunds_number)).into())
 		}
+
+		// TODO: Benchmark
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::WeightInfo::touch(3))]
+		pub fn place_market_order(
+			origin: OriginFor<T>, 			
+			asset1: Box<T::AssetKind>,
+			asset2: Box<T::AssetKind>,
+			quantity: T::Unit,
+		) -> DispatchResult {
+			let taker = ensure_signed(origin)?;
+			ensure!(quantity > Zero::zero(), Error::<T>::WrongDesiredAmount);
+			let pool = Self::get_pool(asset1, asset2)?;
+			Self::do_place_market_order(taker, pool)?;
+			Ok(())
+		}
+		
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::touch(3))]
+		pub fn place_limit_order(
+			origin: OriginFor<T>, 
+			asset1: Box<T::AssetKind>, 
+			asset2: Box<T::AssetKind>, 
+			is_bid: bool,
+			price: T::Unit,
+			quantity: T::Unit,
+		) -> DispatchResult {
+			let maker = ensure_signed(origin)?;
+			let pool = Self::get_pool(asset1, asset2)?;
+			Self::do_place_limit_order(maker, price, quantity, is_bid, pool)?;
+			Ok(())
+		}
+
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::touch(3))]
+		pub fn cancel_order(origin: OriginFor<T>, 
+			asset1: Box<T::AssetKind>, 
+			asset2: Box<T::AssetKind>
+		) -> DispatchResult {
+			let owner = ensure_signed(origin)?;
+			let pool = Self::get_pool(asset1, asset2)?;
+			Self::do_cancel_order(owner, pool)?;
+			Ok(())
+		}
+
+		// impl me!
+		// #[pallet::call_index(9)]
+		// #[pallet::weight(T::WeightInfo::touch(3))]
+		// pub fn stop_limit_order(origin: OriginFor<T>) -> DispatchResult {
+		// 	let owner = ensure_signed(origin)?;
+		// 	let pool = Self::get_pool(asset1, asset2)?;
+		// 	Self::do_stop_limit_order(owner, pool)?;
+		// 	Ok(())
+		// }
 	}
 
 	impl<T: Config> Pallet<T> {
+
+		fn get_pool(asset1: Box<T::AssetKind>, asset2: Box<T::AssetKind>) -> Result<Pool<T>, DispatchError> {
+			let pool_id = T::PoolLocator::pool_id(&asset1, &asset2)
+				.map_err(|_| Error::<T>::InvalidAssetPair)?;
+			Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound.into())
+		}
+
+		pub(crate) fn do_place_market_order(_taker: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+			Ok(())
+		}
+
+		pub(crate) fn do_place_limit_order(_maker: T::AccountId, quantity: T::Unit, price: T::Unit, is_bid: bool, pool: Pool<T>) -> DispatchResult {
+			// Validity check
+			ensure!(quantity > Zero::zero(), Error::<T>::WrongDesiredAmount);
+			ensure!(price > Zero::zero(), Error::<T>::InvalidOrderPrice);
+			ensure!(price % pool.tick_size == Zero::zero(), Error::<T>::InvalidOrderPrice);
+			ensure!(quantity >= pool.lot_size && quantity % pool.lot_size == Zero::zero(), Error::<T>::InvalidOrderQuantity);
+			if is_bid {
+				Self::match_bid()?;
+			} else {
+				Self::match_ask()?;
+			}
+			Ok(())
+		}
+
+		pub(crate) fn do_cancel_order(_owner: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+			Ok(())
+		}
+
+		pub(crate) fn do_stop_limit_order(_owner: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+			Ok(())
+		}
+
+		pub(crate) fn match_bid() -> Result<(), DispatchError> {
+			Ok(())
+		}
+		
+		pub(crate) fn match_ask() -> Result<(), DispatchError> {
+			Ok(())
+		}
+
 		/// Swap exactly `amount_in` of asset `path[0]` for asset `path[1]`.
 		/// If an `amount_out_min` is specified, it will return an error if it is unable to acquire
 		/// the amount desired.
@@ -738,11 +845,11 @@ pub mod pallet {
 		pub(crate) fn do_swap_exact_tokens_for_tokens(
 			sender: T::AccountId,
 			path: Vec<T::AssetKind>,
-			amount_in: T::Balance,
-			amount_out_min: Option<T::Balance>,
+			amount_in: T::Unit,
+			amount_out_min: Option<T::Unit>,
 			send_to: T::AccountId,
 			keep_alive: bool,
-		) -> Result<T::Balance, DispatchError> {
+		) -> Result<T::Unit, DispatchError> {
 			ensure!(amount_in > Zero::zero(), Error::<T>::ZeroAmount);
 			if let Some(amount_out_min) = amount_out_min {
 				ensure!(amount_out_min > Zero::zero(), Error::<T>::ZeroAmount);
@@ -786,11 +893,11 @@ pub mod pallet {
 		pub(crate) fn do_swap_tokens_for_exact_tokens(
 			sender: T::AccountId,
 			path: Vec<T::AssetKind>,
-			amount_out: T::Balance,
-			amount_in_max: Option<T::Balance>,
+			amount_out: T::Unit,
+			amount_in_max: Option<T::Unit>,
 			send_to: T::AccountId,
 			keep_alive: bool,
-		) -> Result<T::Balance, DispatchError> {
+		) -> Result<T::Unit, DispatchError> {
 			ensure!(amount_out > Zero::zero(), Error::<T>::ZeroAmount);
 			if let Some(amount_in_max) = amount_in_max {
 				ensure!(amount_in_max > Zero::zero(), Error::<T>::ZeroAmount);
@@ -833,7 +940,7 @@ pub mod pallet {
 		pub(crate) fn do_swap_exact_credit_tokens_for_tokens(
 			path: Vec<T::AssetKind>,
 			credit_in: CreditOf<T>,
-			amount_out_min: Option<T::Balance>,
+			amount_out_min: Option<T::Unit>,
 		) -> Result<CreditOf<T>, (CreditOf<T>, DispatchError)> {
 			let amount_in = credit_in.peek();
 			let inspect_path = |credit_asset| {
@@ -881,7 +988,7 @@ pub mod pallet {
 		pub(crate) fn do_swap_credit_tokens_for_exact_tokens(
 			path: Vec<T::AssetKind>,
 			credit_in: CreditOf<T>,
-			amount_out: T::Balance,
+			amount_out: T::Unit,
 		) -> Result<(CreditOf<T>, CreditOf<T>), (CreditOf<T>, DispatchError)> {
 			let amount_in_max = credit_in.peek();
 			let inspect_path = |credit_asset| {
@@ -1004,7 +1111,7 @@ pub mod pallet {
 		fn withdraw(
 			asset: T::AssetKind,
 			who: &T::AccountId,
-			value: T::Balance,
+			value: T::Unit,
 			keep_alive: bool,
 		) -> Result<CreditOf<T>, DispatchError> {
 			let preservation = match keep_alive {
@@ -1022,7 +1129,7 @@ pub mod pallet {
 
 		/// Get the `owner`'s balance of `asset`, which could be the chain's native asset or another
 		/// fungible. Returns a value in the form of an `Balance`.
-		fn get_balance(owner: &T::AccountId, asset: T::AssetKind) -> T::Balance {
+		fn get_balance(owner: &T::AccountId, asset: T::AssetKind) -> T::Unit {
 			T::Assets::reducible_balance(asset, owner, Expendable, Polite)
 		}
 
@@ -1031,7 +1138,7 @@ pub mod pallet {
 		pub fn get_reserves(
 			asset1: T::AssetKind,
 			asset2: T::AssetKind,
-		) -> Result<(T::Balance, T::Balance), Error<T>> {
+		) -> Result<(T::Unit, T::Unit), Error<T>> {
 			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2)
 				.map_err(|_| Error::<T>::InvalidAssetPair)?;
 
@@ -1047,11 +1154,11 @@ pub mod pallet {
 
 		/// Leading to an amount at the end of a `path`, get the required amounts in.
 		pub(crate) fn balance_path_from_amount_out(
-			amount_out: T::Balance,
+			amount_out: T::Unit,
 			path: Vec<T::AssetKind>,
 		) -> Result<BalancePath<T>, DispatchError> {
 			let mut balance_path: BalancePath<T> = Vec::with_capacity(path.len());
-			let mut amount_in: T::Balance = amount_out;
+			let mut amount_in: T::Unit = amount_out;
 
 			let mut iter = path.into_iter().rev().peekable();
 			while let Some(asset2) = iter.next() {
@@ -1073,11 +1180,11 @@ pub mod pallet {
 
 		/// Following an amount into a `path`, get the corresponding amounts out.
 		pub(crate) fn balance_path_from_amount_in(
-			amount_in: T::Balance,
+			amount_in: T::Unit,
 			path: Vec<T::AssetKind>,
 		) -> Result<BalancePath<T>, DispatchError> {
 			let mut balance_path: BalancePath<T> = Vec::with_capacity(path.len());
-			let mut amount_out: T::Balance = amount_in;
+			let mut amount_out: T::Unit = amount_in;
 
 			let mut iter = path.into_iter().peekable();
 			while let Some(asset1) = iter.next() {
@@ -1099,9 +1206,9 @@ pub mod pallet {
 		pub fn quote_price_exact_tokens_for_tokens(
 			asset1: T::AssetKind,
 			asset2: T::AssetKind,
-			amount: T::Balance,
+			amount: T::Unit,
 			include_fee: bool,
-		) -> Option<T::Balance> {
+		) -> Option<T::Unit> {
 			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2).ok()?;
 
 			let balance1 = Self::get_balance(&pool_account, asset1);
@@ -1121,9 +1228,9 @@ pub mod pallet {
 		pub fn quote_price_tokens_for_exact_tokens(
 			asset1: T::AssetKind,
 			asset2: T::AssetKind,
-			amount: T::Balance,
+			amount: T::Unit,
 			include_fee: bool,
-		) -> Option<T::Balance> {
+		) -> Option<T::Unit> {
 			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2).ok()?;
 
 			let balance1 = Self::get_balance(&pool_account, asset1);
@@ -1141,18 +1248,18 @@ pub mod pallet {
 
 		/// Calculates the optimal amount from the reserves.
 		pub fn quote(
-			amount: &T::Balance,
-			reserve1: &T::Balance,
-			reserve2: &T::Balance,
-		) -> Result<T::Balance, Error<T>> {
+			amount: &T::Unit,
+			reserve1: &T::Unit,
+			reserve2: &T::Unit,
+		) -> Result<T::Unit, Error<T>> {
 			// (amount * reserve2) / reserve1
 			Self::mul_div(amount, reserve2, reserve1)
 		}
 
 		pub(super) fn calc_lp_amount_for_zero_supply(
-			amount1: &T::Balance,
-			amount2: &T::Balance,
-		) -> Result<T::Balance, Error<T>> {
+			amount1: &T::Unit,
+			amount2: &T::Unit,
+		) -> Result<T::Unit, Error<T>> {
 			let amount1 = T::HigherPrecisionBalance::from(*amount1);
 			let amount2 = T::HigherPrecisionBalance::from(*amount2);
 
@@ -1166,10 +1273,10 @@ pub mod pallet {
 			result.try_into().map_err(|_| Error::<T>::Overflow)
 		}
 
-		fn mul_div(a: &T::Balance, b: &T::Balance, c: &T::Balance) -> Result<T::Balance, Error<T>> {
-			let a = T::HigherPrecisionBalance::from(*a);
-			let b = T::HigherPrecisionBalance::from(*b);
-			let c = T::HigherPrecisionBalance::from(*c);
+		fn mul_div(a: &T::Unit, b: &T::Unit, c: &T::Unit) -> Result<T::Unit, Error<T>> {
+			let a = T::HigherPrecisionUnit::from(*a);
+			let b = T::HigherPrecisionUnit::from(*b);
+			let c = T::HigherPrecisionUnit::from(*c);
 
 			let result = a
 				.checked_mul(&b)
@@ -1185,20 +1292,20 @@ pub mod pallet {
 		/// Given an input amount of an asset and pair reserves, returns the maximum output amount
 		/// of the other asset.
 		pub fn get_amount_out(
-			amount_in: &T::Balance,
-			reserve_in: &T::Balance,
-			reserve_out: &T::Balance,
-		) -> Result<T::Balance, Error<T>> {
-			let amount_in = T::HigherPrecisionBalance::from(*amount_in);
-			let reserve_in = T::HigherPrecisionBalance::from(*reserve_in);
-			let reserve_out = T::HigherPrecisionBalance::from(*reserve_out);
+			amount_in: &T::Unit,
+			reserve_in: &T::Unit,
+			reserve_out: &T::Unit,
+		) -> Result<T::Unit, Error<T>> {
+			let amount_in = T::HigherPrecisionUnit::from(*amount_in);
+			let reserve_in = T::HigherPrecisionUnit::from(*reserve_in);
+			let reserve_out = T::HigherPrecisionUnit::from(*reserve_out);
 
 			if reserve_in.is_zero() || reserve_out.is_zero() {
 				return Err(Error::<T>::ZeroLiquidity)
 			}
 
 			let amount_in_with_fee = amount_in
-				.checked_mul(&(T::HigherPrecisionBalance::from(1000u32) - (T::LPFee::get().into())))
+				.checked_mul(&(T::HigherPrecisionUnit::from(1000u32) - (T::LPFee::get().into())))
 				.ok_or(Error::<T>::Overflow)?;
 
 			let numerator =
@@ -1220,13 +1327,13 @@ pub mod pallet {
 		/// Given an output amount of an asset and pair reserves, returns a required input amount
 		/// of the other asset.
 		pub fn get_amount_in(
-			amount_out: &T::Balance,
-			reserve_in: &T::Balance,
-			reserve_out: &T::Balance,
-		) -> Result<T::Balance, Error<T>> {
-			let amount_out = T::HigherPrecisionBalance::from(*amount_out);
-			let reserve_in = T::HigherPrecisionBalance::from(*reserve_in);
-			let reserve_out = T::HigherPrecisionBalance::from(*reserve_out);
+			amount_out: &T::Unit,
+			reserve_in: &T::Unit,
+			reserve_out: &T::Unit,
+		) -> Result<T::Unit, Error<T>> {
+			let amount_out = T::HigherPrecisionUnit::from(*amount_out);
+			let reserve_in = T::HigherPrecisionUnit::from(*reserve_in);
+			let reserve_out = T::HigherPrecisionUnit::from(*reserve_out);
 
 			if reserve_in.is_zero() || reserve_out.is_zero() {
 				Err(Error::<T>::ZeroLiquidity)?
@@ -1245,7 +1352,7 @@ pub mod pallet {
 			let denominator = reserve_out
 				.checked_sub(&amount_out)
 				.ok_or(Error::<T>::Overflow)?
-				.checked_mul(&(T::HigherPrecisionBalance::from(1000u32) - T::LPFee::get().into()))
+				.checked_mul(&(T::HigherPrecisionUnit::from(1000u32) - T::LPFee::get().into()))
 				.ok_or(Error::<T>::Overflow)?;
 
 			let result = numerator
