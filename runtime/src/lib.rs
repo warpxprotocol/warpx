@@ -54,7 +54,7 @@ pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 use pallet_grandpa::AuthorityId as GrandpaId;
-use pallet_hybrid_orderbook::{Pool, CritbitTree, Tick, WithFirstAsset, Ascending, Chain};
+use pallet_hybrid_orderbook::{Pool, CritbitTree, Tick, WithFirstAsset, Ascending, Chain, BaseQuoteAsset};
 
 pub use primitives::*;
 pub mod primitives {
@@ -315,15 +315,12 @@ ord_parameter_types! {
 impl pallet_hybrid_orderbook::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Unit = Balance;
-	type HigherPrecisionBalance = u128;
+	type HigherPrecisionUnit = u128;
 	type AssetKind = NativeOrWithId<u32>;
 	type Assets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
 	type OrderBook = CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>;
 	type PoolId = (Self::AssetKind, Self::AssetKind);
-	type PoolLocator = Chain<
-		WithFirstAsset<Native, AccountId, NativeOrWithId<u32>>,
-		Ascending<AccountId, NativeOrWithId<u32>>,
-	>;
+	type PoolLocator = BaseQuoteAsset<AccountId, NativeOrWithId<u32>>;
 	type PoolAssetId = <Self as pallet_assets::Config<Instance2>>::AssetId;
 	type PoolAssets = PoolAssets;
 	type PoolSetupFee = PoolSetupFee;

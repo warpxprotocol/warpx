@@ -127,6 +127,29 @@ pub trait PoolLocator<AccountId, AssetKind, PoolId> {
 	}
 }
 
+/// Pool locator that mandates the base asset and quote asset are different.
+/// 
+/// The `PoolId` is represented as a tuple of `AssetKind`s with `BaseAsset` always positioned as
+/// the first element.
+pub struct BaseQuoteAsset<AccountId, AssetKind>(PhantomData<(AccountId, AssetKind)>);
+impl<AccountId, AssetKind> PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)> for BaseQuoteAsset<AccountId, AssetKind> 
+where
+    AssetKind: Eq + Clone + Encode,
+    AccountId: Decode,
+{  
+    fn pool_id(base_asset: &AssetKind, quote_asset: &AssetKind) -> Result<(AssetKind, AssetKind), ()> {
+        if base_asset == quote_asset {
+            return Err(());
+        }
+        Ok((base_asset.clone(), quote_asset.clone()))
+    }
+
+    fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
+        let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+        Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
+    }
+}
+
 /// Pool locator that mandates the inclusion of the specified `FirstAsset` in every asset pair.
 ///
 /// The `PoolId` is represented as a tuple of `AssetKind`s with `FirstAsset` always positioned as
