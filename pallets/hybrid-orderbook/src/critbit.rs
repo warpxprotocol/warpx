@@ -469,17 +469,40 @@ impl<Index: OrderBookIndex, Order: Clone + PartialOrd> OrderBook for CritbitTree
     type Index = Index;
     type Order = Order;
     type OrderId = OrderId;
+    type Error = CritbitTreeError;
 
     fn new() -> Self {
         CritbitTree::new()
     }
 
-    fn new_order(&mut self, order: Order) -> Result<(), DispatchError> {
+    fn new_order(&mut self, order: Order) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), DispatchError> {
+    fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), Self::Error> {
         Ok(())
+    }
+
+    fn min_order(&self) -> Option<(Self::Index, Self::Index)> {
+        if let Ok(maybe_min) = self.min_leaf() {
+            maybe_min
+        } else {
+            // TODO
+            None
+        } 
+    }
+
+    fn max_order(&self) -> Option<(Self::Index, Self::Index)> {
+        if let Ok(maybe_max) = self.max_leaf() {
+            maybe_max
+        } else {
+            // TODO
+            None
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 

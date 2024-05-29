@@ -101,6 +101,14 @@ impl<T: Config> Pool<T> {
             lot_size,
         }
     }
+
+    pub fn next_bid_order(&self) -> Option<(OrderId, T::Unit, T::Unit)> {
+        self.bids.max_order()
+    }
+
+    pub fn next_ask_order(&self) -> Option<(OrderId, T::Unit, T::Unit)> {
+        self.asks.min_order()
+    }
 }
 
 /// Provides means to resolve the `PoolId` and `AccountId` from a pair of assets.
@@ -255,13 +263,20 @@ pub mod traits {
         type Order;
         /// Identifier for each order
         type OrderId;
+        type Error;
 
         /// Create new instance
         fn new() -> Self;
 
-        fn new_order(&mut self, order: Self::Order) -> Result<(), DispatchError>;
+        fn new_order(&mut self, order: Self::Order) -> Result<(), Self::Error>;
 
-        fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), DispatchError>;
+        fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), Self::Error>;
+
+        fn min_order(&self) -> Option<(Self::Index, Self::Index)>;
+
+        fn max_order(&self) -> Option<(Self::Index, Self::Index)>;
+
+        fn is_empty(&self) -> bool;
     }
 
 	/// Index trait for the critbit tree.

@@ -137,7 +137,7 @@ pub mod pallet {
 			+ Balanced<Self::AccountId>;
 
 		/// Type of data structure of orderbook
-		type OrderBook: OrderBook + Parameter;
+		type OrderBook: OrderBook<Index = Self::Unit> + Parameter;
 
 		/// Liquidity pool identifier.
 		type PoolId: Parameter + MaxEncodedLen + Ord;
@@ -479,8 +479,8 @@ pub mod pallet {
 			let pool_account =
 				T::PoolLocator::address(&pool_id).map_err(|_| Error::<T>::InvalidAssetPair)?;
 
-			let base_asset_reserve = Self::get_balance(&pool_account, *base_asset.clone());
-			let quote_asset_reserve = Self::get_balance(&pool_account, *quote_asset.clone());
+			let base_asset_reserve = Self::get_balance(&pool_account, &base_asset);
+			let quote_asset_reserve = Self::get_balance(&pool_account, &quote_asset);
 
 			let base_asset_amount: T::Unit;
 			let quote_asset_amount: T::Unit;
@@ -585,8 +585,8 @@ pub mod pallet {
 
 			let pool_account =
 				T::PoolLocator::address(&pool_id).map_err(|_| Error::<T>::InvalidAssetPair)?;
-			let base_asset_reserve = Self::get_balance(&pool_account, *base_asset.clone());
-			let quote_asset_reserve = Self::get_balance(&pool_account, *quote_asset.clone());
+			let base_asset_reserve = Self::get_balance(&pool_account, &base_asset);
+			let quote_asset_reserve = Self::get_balance(&pool_account, &quote_asset);
 
 			let total_supply = T::PoolAssets::total_issuance(pool.lp_token.clone());
 			let withdrawal_fee_amount = T::LiquidityWithdrawalFee::get() * lp_token_burn;
@@ -796,6 +796,11 @@ pub mod pallet {
 		}
 
 		pub(crate) fn do_place_market_order(_taker: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+			// if is_bid {
+			// 	Self::match_bid()
+			// } else {
+			// 	Self::match_ask()
+			// }
 			Ok(())
 		}
 
@@ -814,9 +819,17 @@ pub mod pallet {
 			ensure!(order_price % pool.tick_size == Zero::zero(), Error::<T>::InvalidOrderPrice);
 			ensure!(order_quantity >= pool.lot_size && order_quantity % pool.lot_size == Zero::zero(), Error::<T>::InvalidOrderQuantity);
 			if is_bid {
-				Self::match_bid(maker, *base_asset, *quote_asset, order_price, order_quantity)?;
+				if order_price >= Self::pool_price(&base_asset, &quote_asset)? {
+					Self::match_bid(maker, pool, &base_asset, &quote_asset, order_price, order_quantity)?;
+				} else {
+					// place order on orderbook
+				}
 			} else {
-				Self::match_ask(maker, *base_asset, *quote_asset, order_price, order_quantity)?;
+				if order_price <= Self::pool_price(&base_asset, &quote_asset)? {
+					Self::match_ask(maker, pool, &base_asset, &quote_asset, order_price, order_quantity)?;
+				} else {
+					// place order on orderbook
+				}
 			}
 			Ok(())
 		}
@@ -829,31 +842,79 @@ pub mod pallet {
 			Ok(())
 		}
 
-		pub(crate) fn match_bid(maker: T::AccountId, base_asset: T::AssetKind, quote_asset: T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
-			let last_price = Self::last_price(base_asset, quote_asset)?;
-			if order_price >= last_price {
-				// Fill the order
-				let amount_in = Self::get_amount_in(order_quantity, )
-			} else {
-				// Push the order to the orderbook
+		pub(crate) fn match_bid(orderer: T::AccountId, pool: Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
+			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
+			let amount_in = Self::get_amount_in(&order_quantity, &quote_reserve, &base_reserve)?;
+			let mut remain_orders = order_quantity;
+			// Match orders until all orders are filled
+			while remain_orders > Zero::zero() {
+				if let Some(next_ask_order) = pool.next_ask_order() {
+					let pool_price = Self::quote(&One::one(), &(base_reserve - order_quantity), &(quote_reserve + amount_in))?;
+					if pool_price >= next_ask_order.0 {
+						// Orders filled from Orderbook
+						// Find closest quantity for min_ask_price from Orderbook
+						// let closest_quantity = Self::find_closest_quantity(pool, true, base_asset, quote_asset, remain_orders)?;
+					} else {
+						// Orders filled from Pool
+						Self::do_swap_tokens_for_exact_tokens(orderer, vec![*base_asset, *quote_asset], order_quantity, None, orderer, false)?;
+					}
+				} else {
+					// Break loop if no orders on Orderbook
+					break;
+				}
 			}
+			// Fill remain orders from pool if any(e.g no orders on OrderBook)
+			// if remain_orders > Zero::zero() {
+			// 	Self::swap()
+			// }
+
 			Ok(())
 		}
 		
-		pub(crate) fn match_ask(maker: T::AccountId, base_asset: T::AssetKind, quote_asset: T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
-			let last_price = Self::last_price(base_asset, quote_asset)?;
-			if order_price <= last_price {
-				// Fill the order
-			} else {
-				// Push the order to the orderbook
-			}
-			Ok(())
+		pub(crate) fn match_ask(orderer: T::AccountId, pool: Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
+			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
+			let amount_out = Self::get_amount_out(&order_quantity, &base_reserve, &quote_reserve)?;
+			
+			Ok(())	
 		} 
 
 		/// Current price of the pool based on base and quote reserves
-		pub(crate) fn last_price(base_asset: T::AssetKind, quote_asset: T::AssetKind) -> Result<T::Unit, DispatchError> {
+		/// 
+		/// Pool price
+		/// 
+		/// 1 * quote_reserve / base_reserve
+		pub(crate) fn pool_price(base_asset: &T::AssetKind, quote_asset: &T::AssetKind) -> Result<T::Unit, Error<T>> {
 			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
-			Ok(quote_reserve / base_reserve)
+			Self::quote(&One::one(), &quote_reserve, &base_reserve)
+		}
+
+		pub(crate) fn find_closest_quantity(pool: Pool<T>, is_bid: bool, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_quantity: T::Unit) -> Result<Option<T::Unit>, Error<T>> {
+			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
+			if let Some((target_price, _)) = pool.next_fill_order(is_bid) {
+				let mut min: T::Unit = Zero::zero();
+				let mut max: T::Unit = order_quantity;
+				while min < max {
+					let mid = (min + max + One::one()) / 2u32.into();
+					let pool_price = if is_bid {
+						let amount_in = Self::get_amount_in(&mid, &quote_reserve, &base_reserve)?;
+						Self::quote(&One::one(), &(base_reserve - mid), &(quote_reserve + amount_in))?
+					} else {
+						let amount_out = Self::get_amount_out(&mid, &base_reserve, &quote_reserve)?;
+						Self::quote(&One::one(), &(base_reserve + mid), &(quote_reserve - amount_out))?
+					};
+					if pool_price == target_price {
+						return Ok(Some(mid));
+					}
+					if pool_price < target_price {
+						min = mid + One::one();
+					} else {
+						max = mid - One::one();
+					}
+				}
+				Ok(None)
+			} else {
+				Ok(None)
+			}
 		}
 
 		/// Swap exactly `amount_in` of asset `path[0]` for asset `path[1]`.
@@ -1155,17 +1216,17 @@ pub mod pallet {
 
 		/// Get the `owner`'s balance of `asset`, which could be the chain's native asset or another
 		/// fungible. Returns a value in the form of an `Balance`.
-		fn get_balance(owner: &T::AccountId, asset: T::AssetKind) -> T::Unit {
-			T::Assets::reducible_balance(asset, owner, Expendable, Polite)
+		fn get_balance(owner: &T::AccountId, asset: &T::AssetKind) -> T::Unit {
+			T::Assets::reducible_balance(asset.clone(), owner, Expendable, Polite)
 		}
 
 		/// Returns the balance of each asset in the pool.
 		/// The tuple result is in the order requested (not necessarily the same as pool order).
 		pub fn get_reserves(
-			asset1: T::AssetKind,
-			asset2: T::AssetKind,
+			asset1: &T::AssetKind,
+			asset2: &T::AssetKind,
 		) -> Result<(T::Unit, T::Unit), Error<T>> {
-			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2)
+			let pool_account = T::PoolLocator::pool_address(asset1, asset2)
 				.map_err(|_| Error::<T>::InvalidAssetPair)?;
 
 			let balance1 = Self::get_balance(&pool_account, asset1);
@@ -1221,7 +1282,7 @@ pub mod pallet {
 						break
 					},
 				};
-				let (reserve_in, reserve_out) = Self::get_reserves(asset1.clone(), asset2.clone())?;
+				let (reserve_in, reserve_out) = Self::get_reserves(&asset1, &asset2)?;
 				balance_path.push((asset1, amount_out));
 				amount_out = Self::get_amount_out(&amount_out, &reserve_in, &reserve_out)?;
 			}
@@ -1237,8 +1298,8 @@ pub mod pallet {
 		) -> Option<T::Unit> {
 			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2).ok()?;
 
-			let balance1 = Self::get_balance(&pool_account, asset1);
-			let balance2 = Self::get_balance(&pool_account, asset2);
+			let balance1 = Self::get_balance(&pool_account, &asset1);
+			let balance2 = Self::get_balance(&pool_account, &asset2);
 			if !balance1.is_zero() {
 				if include_fee {
 					Self::get_amount_out(&amount, &balance1, &balance2).ok()
@@ -1259,8 +1320,8 @@ pub mod pallet {
 		) -> Option<T::Unit> {
 			let pool_account = T::PoolLocator::pool_address(&asset1, &asset2).ok()?;
 
-			let balance1 = Self::get_balance(&pool_account, asset1);
-			let balance2 = Self::get_balance(&pool_account, asset2);
+			let balance1 = Self::get_balance(&pool_account, &asset1);
+			let balance2 = Self::get_balance(&pool_account, &asset2);
 			if !balance1.is_zero() {
 				if include_fee {
 					Self::get_amount_in(&amount, &balance1, &balance2).ok()

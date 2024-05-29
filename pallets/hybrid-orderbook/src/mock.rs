@@ -62,7 +62,7 @@ impl frame_system::Config for Test {
 }
 
 impl pallet_balances::Config for Test {
-	type Balance = u128;
+	type Balance = u64;
 	type DustRemoval = ();
 	type RuntimeEvent = RuntimeEvent;
 	type ExistentialDeposit = ConstU128<100>;
@@ -145,8 +145,8 @@ pub type WithFirstAssetLocator =
 
 impl Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Balance = <Self as pallet_balances::Config>::Balance;
-	type HigherPrecisionBalance = sp_core::U256;
+	type Unit = <Self as pallet_balances::Config>::Balance;
+	type HigherPrecisionUnit = u128;
 	type AssetKind = NativeOrWithId<u32>;
 	type Assets = NativeAndAssets;
 	type PoolId = (Self::AssetKind, Self::AssetKind);
