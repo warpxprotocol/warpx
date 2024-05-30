@@ -21,9 +21,12 @@ use core::marker::PhantomData;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{TryConvert, AtLeast32BitUnsigned};
 use sp_core::{RuntimeDebug, U256};
+use sp_std::vec::Vec;
 use core::ops::BitAnd;
 
 pub use traits::{OrderBook, OrderBookIndex};
+
+pub type OrderBookUnitFor<T> = <<T as Config>::OrderBook as OrderBook>::Unit;
 
 /// Identifier for each order
 pub type OrderId = u64;
@@ -102,12 +105,30 @@ impl<T: Config> Pool<T> {
         }
     }
 
-    pub fn next_bid_order(&self) -> Option<(OrderId, T::Unit, T::Unit)> {
+    pub fn bid_orders(&self) -> T::OrderBook {
+        self.bids.clone()
+    }
+
+    pub fn ask_orders(&self) -> T::OrderBook {
+        self.asks.clone()
+    }
+
+    pub fn next_bid_order(&self) -> Option<(T::Unit, T::Unit)> {
         self.bids.max_order()
     }
 
-    pub fn next_ask_order(&self) -> Option<(OrderId, T::Unit, T::Unit)> {
+    pub fn next_ask_order(&self) -> Option<(T::Unit, T::Unit)> {
         self.asks.min_order()
+    }
+
+    pub fn fill_order(&mut self, is_bid: bool, price: T::Unit, quantity: T::Unit) -> Result<Option<T::Unit>, Error<T>> {
+        let res = if is_bid {
+            self.asks.fill_order(price, quantity)
+        } else {
+            self.bids.fill_order(price, quantity)
+        };
+
+        res.map_err(|_| Error::<T>::ErrorOnFillOrder)
     }
 }
 
@@ -260,7 +281,8 @@ pub mod traits {
 	pub trait OrderBook {
 
         type Index: OrderBookIndex;
-        type Order;
+        type Unit: AtLeast32BitUnsigned;
+        type Order: Order;
         /// Identifier for each order
         type OrderId;
         type Error;
@@ -277,6 +299,8 @@ pub mod traits {
         fn max_order(&self) -> Option<(Self::Index, Self::Index)>;
 
         fn is_empty(&self) -> bool;
+
+        fn fill_order(&mut self, key: Self::Index, quantity: Self::Unit) -> Result<Option<Self::Unit>, Self::Error>;
     }
 
 	/// Index trait for the critbit tree.
@@ -315,4 +339,74 @@ pub mod traits {
     impl_order_book_index!(u32, u64);
     impl_order_book_index!(u64, u128);
     impl_order_book_index!(u128, U256);
+
+    pub trait Order {
+        type OrderId;
+        type Unit; 
+        type Error;
+
+        fn fill(&mut self, quantity: Self::Unit) -> Option<Self::Unit>;
+
+        fn add(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error>;
+
+        fn remove(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error>;
+
+        fn done_fill();
+        fn done_add();
+        fn done_remove();
+    }
+
+    impl<Quantity, Account, BlockNumber> Order for Tick<Quantity, Account, BlockNumber> 
+    where
+        Quantity: AtLeast32BitUnsigned + Copy
+    {
+        type OrderId = OrderId;
+        type Unit = Quantity;
+        type Error = DispatchError;
+
+        fn fill(&mut self, quantity: Self::Unit) -> Option<Self::Unit> {
+            let mut filled = quantity;
+            let mut to_remove = Vec::new();
+            for (id, order) in self.open_orders.iter_mut() {
+                // All orders are filled
+                if filled == Zero::zero() {
+                    break;
+                }
+                if order.quantity >= quantity {
+                    order.quantity -= quantity;
+                    filled = Zero::zero();
+                } else {
+                    filled -= order.quantity;
+                    // Order of `id` is fully filled and should be removed
+                    to_remove.push(*id);
+                }
+            }
+            // Remove the fully filled orders
+            for id in to_remove {
+                self.open_orders.remove(&id);
+            }
+            // If all orders are fully filled, call `done_fill()` and return `None`
+            // Otherwise, return the remaining orders 
+            if filled == Zero::zero() {
+                Self::done_fill();
+                None
+            } else {
+                Some(filled)
+            }
+        }
+
+        fn add(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error> {
+            Self::done_add();
+            Ok(())
+        }
+
+        fn remove(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error> {
+            Self::done_remove();
+            Ok(())
+        }
+
+        fn done_fill() {}
+        fn done_add() {}
+        fn done_remove() {}
+    }
 }

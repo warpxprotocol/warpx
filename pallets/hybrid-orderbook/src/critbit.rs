@@ -1,5 +1,5 @@
 
-use self::traits::OrderBookIndex;
+use self::traits::{OrderBookIndex, Order as OrderTrait};
 
 use super::*;
 
@@ -464,9 +464,14 @@ impl<K: OrderBookIndex, V> LeafNode<K, V> {
     }
 }
 
-impl<Index: OrderBookIndex, Order: Clone + PartialOrd> OrderBook for CritbitTree<Index, Order> {
+impl<Index, Order> OrderBook for CritbitTree<Index, Order> 
+where
+    Index: OrderBookIndex,
+    Order: OrderTrait<Unit=Index> + Clone + PartialOrd
+{
 
     type Index = Index;
+    type Unit = Index;
     type Order = Order;
     type OrderId = OrderId;
     type Error = CritbitTreeError;
@@ -475,7 +480,7 @@ impl<Index: OrderBookIndex, Order: Clone + PartialOrd> OrderBook for CritbitTree
         CritbitTree::new()
     }
 
-    fn new_order(&mut self, order: Order) -> Result<(), Self::Error> {
+    fn new_order(&mut self, order: Self::Order) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -503,6 +508,29 @@ impl<Index: OrderBookIndex, Order: Clone + PartialOrd> OrderBook for CritbitTree
 
     fn is_empty(&self) -> bool {
         self.is_empty()
+    }
+
+    fn fill_order(&mut self, key: Self::Index, quantity: Self::Unit) -> Result<Option<Self::Unit>, Self::Error> {
+        
+        if let Some(leaf_index) = self.find_leaf(&key)? {
+            if leaf_index == Self::Index::PARTITION_INDEX {
+                // Since tree is empty, we don't do anything
+                return Ok(Some(quantity))
+            }
+            if let Some(leaf) = self.leaves.get_mut(&leaf_index) {
+                if let Some(remain) = leaf.value.fill(quantity) {
+                    return Ok(Some(remain))
+                } else {
+                    // Order has been fully filled
+                    return Ok(None)
+                }
+            } else {
+                return Ok(Some(quantity))
+            }
+        } else {
+            // If there is no leaf for the given price(key), we don't do anything
+            return Ok(Some(quantity))
+        }
     }
 }
 

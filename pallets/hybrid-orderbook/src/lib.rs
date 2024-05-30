@@ -137,7 +137,7 @@ pub mod pallet {
 			+ Balanced<Self::AccountId>;
 
 		/// Type of data structure of orderbook
-		type OrderBook: OrderBook<Index = Self::Unit> + Parameter;
+		type OrderBook: OrderBook<Index = Self::Unit, Unit=Self::Unit> + Parameter;
 
 		/// Liquidity pool identifier.
 		type PoolId: Parameter + MaxEncodedLen + Ord;
@@ -359,6 +359,8 @@ pub mod pallet {
 		InvalidOrderPrice,
 		/// The order quantity must be a multiple of the lot size.
 		InvalidOrderQuantity,
+		/// An error occurred while filling an order.
+		ErrorOnFillOrder
 	}
 
 	#[pallet::hooks]
@@ -652,11 +654,11 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 			Self::do_swap_exact_tokens_for_tokens(
-				sender,
+				&sender,
 				path.into_iter().map(|a| *a).collect(),
 				amount_in,
 				Some(amount_out_min),
-				send_to,
+				&send_to,
 				keep_alive,
 			)?;
 			Ok(())
@@ -680,11 +682,11 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 			Self::do_swap_tokens_for_exact_tokens(
-				sender,
+				&sender,
 				path.into_iter().map(|a| *a).collect(),
 				amount_out,
 				Some(amount_in_max),
-				send_to,
+				&send_to,
 				keep_alive,
 			)?;
 			Ok(())
@@ -741,11 +743,12 @@ pub mod pallet {
 			base_asset: Box<T::AssetKind>,
 			quote_asset: Box<T::AssetKind>,
 			quantity: T::Unit,
+			is_bid: bool,
 		) -> DispatchResult {
 			let taker = ensure_signed(origin)?;
 			ensure!(quantity > Zero::zero(), Error::<T>::WrongDesiredAmount);
 			let pool = Self::get_pool(base_asset, quote_asset)?;
-			Self::do_place_market_order(taker, pool)?;
+			Self::do_place_market_order(taker, pool, is_bid)?;
 			Ok(())
 		}
 		
@@ -795,11 +798,11 @@ pub mod pallet {
 			Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound.into())
 		}
 
-		pub(crate) fn do_place_market_order(_taker: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+		pub(crate) fn do_place_market_order(_taker: T::AccountId, _pool: Pool<T>, is_bid: bool) -> DispatchResult {
 			// if is_bid {
-			// 	Self::match_bid()
+			// 	Self::do_match_bid()
 			// } else {
-			// 	Self::match_ask()
+			// 	Self::do_match_ask()
 			// }
 			Ok(())
 		}
@@ -820,13 +823,13 @@ pub mod pallet {
 			ensure!(order_quantity >= pool.lot_size && order_quantity % pool.lot_size == Zero::zero(), Error::<T>::InvalidOrderQuantity);
 			if is_bid {
 				if order_price >= Self::pool_price(&base_asset, &quote_asset)? {
-					Self::match_bid(maker, pool, &base_asset, &quote_asset, order_price, order_quantity)?;
+					Self::do_match_bid(&maker, &pool, &base_asset, &quote_asset, order_price, order_quantity)?;
 				} else {
 					// place order on orderbook
 				}
 			} else {
 				if order_price <= Self::pool_price(&base_asset, &quote_asset)? {
-					Self::match_ask(maker, pool, &base_asset, &quote_asset, order_price, order_quantity)?;
+					Self::do_match_ask(&maker, &pool, &base_asset, &quote_asset, order_price, order_quantity)?;
 				} else {
 					// place order on orderbook
 				}
@@ -842,21 +845,24 @@ pub mod pallet {
 			Ok(())
 		}
 
-		pub(crate) fn match_bid(orderer: T::AccountId, pool: Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
+		pub(crate) fn do_match_bid(orderer: &T::AccountId, pool: &Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
 			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
 			let amount_in = Self::get_amount_in(&order_quantity, &quote_reserve, &base_reserve)?;
 			let mut remain_orders = order_quantity;
 			// Match orders until all orders are filled
 			while remain_orders > Zero::zero() {
 				if let Some(next_ask_order) = pool.next_ask_order() {
-					let pool_price = Self::quote(&One::one(), &(base_reserve - order_quantity), &(quote_reserve + amount_in))?;
-					if pool_price >= next_ask_order.0 {
-						// Orders filled from Orderbook
-						// Find closest quantity for min_ask_price from Orderbook
-						// let closest_quantity = Self::find_closest_quantity(pool, true, base_asset, quote_asset, remain_orders)?;
+					let closest = Self::find_closest(pool, true, base_asset, quote_asset, remain_orders)?.map_or(Zero::zero(), |q| q);
+					if closest <= order_quantity {
+						// Swap up to `closest` from Pool
+						Self::do_fill_pool(true, orderer, remain_orders, base_asset, quote_asset)?;
+						// Remain will be filled from Orderbook
+						remain_orders -= closest;
+						let orders = pool.ask_orders();
+						Self::do_fill_book(orders, &mut remain_orders)?;
 					} else {
-						// Orders filled from Pool
-						Self::do_swap_tokens_for_exact_tokens(orderer, vec![*base_asset, *quote_asset], order_quantity, None, orderer, false)?;
+						// All orders filled from pool
+						Self::do_fill_pool(true, orderer, remain_orders, base_asset, quote_asset)?;
 					}
 				} else {
 					// Break loop if no orders on Orderbook
@@ -864,19 +870,47 @@ pub mod pallet {
 				}
 			}
 			// Fill remain orders from pool if any(e.g no orders on OrderBook)
-			// if remain_orders > Zero::zero() {
-			// 	Self::swap()
-			// }
+			if remain_orders > Zero::zero() {
+				Self::do_fill_pool(true, orderer, remain_orders, base_asset, quote_asset)?;
+			}
 
 			Ok(())
 		}
 		
-		pub(crate) fn match_ask(orderer: T::AccountId, pool: Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
+		pub(crate) fn do_match_ask(orderer: &T::AccountId, pool: &Pool<T>, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_price: T::Unit, order_quantity: T::Unit) -> Result<(), DispatchError> {
 			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
 			let amount_out = Self::get_amount_out(&order_quantity, &base_reserve, &quote_reserve)?;
 			
 			Ok(())	
-		} 
+		}
+
+		fn do_fill_pool(is_bid: bool, orderer: &T::AccountId, quantity: T::Unit, base_asset: &T::AssetKind, quote_asset: &T::AssetKind) -> Result<(), DispatchError> {
+			if is_bid {
+				Self::do_swap_tokens_for_exact_tokens(
+					orderer, 
+					vec![base_asset.clone(), quote_asset.clone()],
+					quantity, 
+					None, 
+					orderer, 
+					false
+				)?;
+			} else {
+				Self::do_swap_exact_tokens_for_tokens(
+					orderer,
+					vec![base_asset.clone(), quote_asset.clone()],
+					quantity,
+					None,
+					orderer,
+					false
+				)?;
+			}
+			Ok(())
+		}
+
+		fn do_fill_book(orders: T::OrderBook, order_quantity: &mut T::Unit) -> Result<(), Error<T>> {
+			
+			Ok(())
+		}
 
 		/// Current price of the pool based on base and quote reserves
 		/// 
@@ -888,32 +922,38 @@ pub mod pallet {
 			Self::quote(&One::one(), &quote_reserve, &base_reserve)
 		}
 
-		pub(crate) fn find_closest_quantity(pool: Pool<T>, is_bid: bool, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_quantity: T::Unit) -> Result<Option<T::Unit>, Error<T>> {
+		/// Find the closest swap quantity for the given order quantity. 
+		/// Here, we use binary search to find the closest quantity to the target price which is O(log(n)) where n is the order quantity.
+		pub(crate) fn find_closest(pool: &Pool<T>, is_bid: bool, base_asset: &T::AssetKind, quote_asset: &T::AssetKind, order_quantity: T::Unit) -> Result<Option<T::Unit>, Error<T>> {
 			let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
-			if let Some((target_price, _)) = pool.next_fill_order(is_bid) {
+			// binary search 
+			let search = |is_bid: bool, q: T::Unit, target: T::Unit, b_r: &T::Unit, q_r: &T::Unit| -> Result<Option<T::Unit>, Error<T>> {
 				let mut min: T::Unit = Zero::zero();
-				let mut max: T::Unit = order_quantity;
+				let mut max: T::Unit = q;
 				while min < max {
 					let mid = (min + max + One::one()) / 2u32.into();
 					let pool_price = if is_bid {
-						let amount_in = Self::get_amount_in(&mid, &quote_reserve, &base_reserve)?;
-						Self::quote(&One::one(), &(base_reserve - mid), &(quote_reserve + amount_in))?
+						let amount_in = Self::get_amount_in(&mid, &q_r, &b_r)?;
+						Self::quote(&One::one(), &(*b_r - mid), &(*q_r + amount_in))?
 					} else {
-						let amount_out = Self::get_amount_out(&mid, &base_reserve, &quote_reserve)?;
-						Self::quote(&One::one(), &(base_reserve + mid), &(quote_reserve - amount_out))?
+						let amount_out = Self::get_amount_out(&mid, &b_r, &q_r)?;
+						Self::quote(&One::one(), &(*b_r + mid), &(*q_r - amount_out))?
 					};
-					if pool_price == target_price {
+					if pool_price == target {
 						return Ok(Some(mid));
 					}
-					if pool_price < target_price {
+					if pool_price < target {
 						min = mid + One::one();
 					} else {
 						max = mid - One::one();
 					}
 				}
 				Ok(None)
-			} else {
-				Ok(None)
+			};
+			let maybe_next_order = if is_bid { pool.next_ask_order() } else { pool.next_bid_order() };
+			match maybe_next_order {
+				Some((target_price, _)) => search(is_bid, order_quantity, target_price, &base_reserve, &quote_reserve),
+				None => Ok(None),
 			}
 		}
 
@@ -930,11 +970,11 @@ pub mod pallet {
 		/// only inside a transactional storage context and an Err result must imply a storage
 		/// rollback.
 		pub(crate) fn do_swap_exact_tokens_for_tokens(
-			sender: T::AccountId,
+			sender: &T::AccountId,
 			path: Vec<T::AssetKind>,
 			amount_in: T::Unit,
 			amount_out_min: Option<T::Unit>,
-			send_to: T::AccountId,
+			send_to: &T::AccountId,
 			keep_alive: bool,
 		) -> Result<T::Unit, DispatchError> {
 			ensure!(amount_in > Zero::zero(), Error::<T>::ZeroAmount);
@@ -956,8 +996,8 @@ pub mod pallet {
 			Self::swap(&sender, &path, &send_to, keep_alive)?;
 
 			Self::deposit_event(Event::SwapExecuted {
-				who: sender,
-				send_to,
+				who: sender.clone(),
+				send_to: send_to.clone(),
 				amount_in,
 				amount_out,
 				path,
@@ -978,11 +1018,11 @@ pub mod pallet {
 		/// only inside a transactional storage context and an Err result must imply a storage
 		/// rollback.
 		pub(crate) fn do_swap_tokens_for_exact_tokens(
-			sender: T::AccountId,
+			sender: &T::AccountId,
 			path: Vec<T::AssetKind>,
 			amount_out: T::Unit,
 			amount_in_max: Option<T::Unit>,
-			send_to: T::AccountId,
+			send_to: &T::AccountId,
 			keep_alive: bool,
 		) -> Result<T::Unit, DispatchError> {
 			ensure!(amount_out > Zero::zero(), Error::<T>::ZeroAmount);
@@ -1001,11 +1041,11 @@ pub mod pallet {
 				);
 			}
 
-			Self::swap(&sender, &path, &send_to, keep_alive)?;
+			Self::swap(sender, &path, send_to, keep_alive)?;
 
 			Self::deposit_event(Event::SwapExecuted {
-				who: sender,
-				send_to,
+				who: sender.clone(),
+				send_to: send_to.clone(),
 				amount_in,
 				amount_out,
 				path,
@@ -1256,7 +1296,7 @@ pub mod pallet {
 						break
 					},
 				};
-				let (reserve_in, reserve_out) = Self::get_reserves(asset1.clone(), asset2.clone())?;
+				let (reserve_in, reserve_out) = Self::get_reserves(&asset1, &asset2)?;
 				balance_path.push((asset2, amount_in));
 				amount_in = Self::get_amount_in(&amount_in, &reserve_in, &reserve_out)?;
 			}

@@ -130,11 +130,11 @@ impl<T: Config> Swap<T::AccountId> for Pallet<T> {
 	) -> Result<Self::Balance, DispatchError> {
 		let amount_out = with_storage_layer(|| {
 			Self::do_swap_exact_tokens_for_tokens(
-				sender,
+				&sender,
 				path,
 				amount_in,
 				amount_out_min,
-				send_to,
+				&send_to,
 				keep_alive,
 			)
 		})?;
@@ -151,11 +151,11 @@ impl<T: Config> Swap<T::AccountId> for Pallet<T> {
 	) -> Result<Self::Balance, DispatchError> {
 		let amount_in = with_storage_layer(|| {
 			Self::do_swap_tokens_for_exact_tokens(
-				sender,
+				&sender,
 				path,
 				amount_out,
 				amount_in_max,
-				send_to,
+				&send_to,
 				keep_alive,
 			)
 		})?;
