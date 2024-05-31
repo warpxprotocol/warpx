@@ -59,7 +59,7 @@ Holds information about all available trading pairs.
 
 **create_pool(base_asset, quote_asset, taker_fee_rate, tick_size, lot_size)**
 
-_Creates a new tradeable pair._
+- _Creates a new tradeable pair._
 
 **Notes:**
 
@@ -68,25 +68,31 @@ _Creates a new tradeable pair._
 
 **add_liquidity(base_asset, quote_asset)**
 
-_Adds liquidity to the pair associated with market_id. Earns LP tokens as reward._
+- _Adds liquidity to the pair associated with market_id. Earns LP tokens as reward._
 
 **remove_liquidity(base_asset, quote_asset)**
 
-_Allows you to remove liquidity by providing the `lp_token` tokens that will be burned in the process._
+- _Allows you to remove liquidity by providing the `lp_token` tokens that will be burned in the process._
 
 **limit_order(base_asset, quote_asset, is_bid, price, quantity)**
 
-_Places an limit order. Order fills create Tick events stored in history._
+- _Places an limit order. Order fills create Tick events stored in history._
 
 **market_order(base_asset, quote_asset, quantity, is_bid)**
 
+- Order matched based on _pool_ price until spread reaches zero between _bid_ and _ask_. After that, remain order quantity will be filled on order book. This process is repeated until order is fully filled.
+
 **stop_order(base_asset, quote_asset)**
+
+- Schedule order to be executed at a price that is a certain offset below the current market price.
 
 **stop_limit_order(base_asset, quote_asset)**
 
-**cancel_order(base_asset, quote_asset)**
+- Schedule order to be executed at a price that is a certain offset below the current market price.
 
-_Cancels order for market_id_
+**cancel_order(base_asset, quote_asset, order_id)**
+
+- Cancel order for given asset pair.
 
 **Note:**
 
