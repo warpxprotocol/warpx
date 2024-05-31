@@ -26,8 +26,6 @@ use core::ops::BitAnd;
 
 pub use traits::{OrderBook, OrderBookIndex};
 
-pub type OrderBookUnitFor<T> = <<T as Config>::OrderBook as OrderBook>::Unit;
-
 /// Identifier for each order
 pub type OrderId = u64;
 
@@ -53,7 +51,21 @@ pub struct PoolInfo<PoolAssetId> {
 
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq, PartialOrd, RuntimeDebug, TypeInfo)]
 pub struct Tick<Quantity, Account, BlockNumber> {
+    next_order_id: OrderId,
     open_orders: BTreeMap<OrderId, Order<Quantity, Account, BlockNumber>>,
+}
+
+impl<Quantity, Account, BlockNumber> Tick<Quantity, Account, BlockNumber> {
+    pub fn new(owner: Account, quantity: Quantity, expired_at: BlockNumber) -> Self {
+        let mut order_id = 0;
+        let mut open_orders = BTreeMap::new();
+        open_orders.insert(order_id, Order::new(owner, quantity, expired_at));
+        order_id += 1;
+        Self {
+            next_order_id: order_id,
+            open_orders
+        }
+    }
 }
 
 /// The order of the orderbook.
@@ -62,6 +74,16 @@ pub struct Order<Quantity, Account, BlockNumber> {
     quantity: Quantity,
     owner: Account,
     expired_at: BlockNumber,
+}
+
+impl<Quantity, Account, BlockNumber> Order<Quantity, Account, BlockNumber> {
+    pub fn new(owner: Account, quantity: Quantity, expired_at: BlockNumber) -> Self {
+        Self {
+            quantity,
+            owner,
+            expired_at,
+        }
+    }
 }
 
 /// Detail of the pool 
@@ -119,6 +141,18 @@ impl<T: Config> Pool<T> {
 
     pub fn next_ask_order(&self) -> Option<(T::Unit, T::Unit)> {
         self.asks.min_order()
+    }
+
+    pub fn place_order(&mut self, is_bid: bool, owner: T::AccountId, price: T::Unit, quantity: T::Unit) -> Result<OrderId, Error<T>> {
+        let current = frame_system::Pallet::<T>::block_number();
+        let expired_at = current + T::OrderExpiration::get();
+        let order_id = if is_bid {
+            self.bids.place_order(owner, price, quantity, expired_at).map_err(|_| Error::<T>::ErrorOnPlaceOrder)?
+        } else {
+            self.asks.place_order(owner, price, quantity, expired_at).map_err(|_| Error::<T>::ErrorOnPlaceOrder)?
+        };
+        
+        Ok(order_id.into())
     }
 
     pub fn fill_order(&mut self, is_bid: bool, price: T::Unit, quantity: T::Unit) -> Result<Option<T::Unit>, Error<T>> {
@@ -278,29 +312,39 @@ pub mod traits {
 
 	use super::*;
 
-	pub trait OrderBook {
-
-        type Index: OrderBookIndex;
-        type Unit: AtLeast32BitUnsigned;
-        type Order: Order;
+	pub trait OrderBook<Account, Unit, BlockNumber> {
+        /// Type of order used for value in orderbook 
+        type Order: OrderInterface<Account, Unit, BlockNumber>;
         /// Identifier for each order
-        type OrderId;
+        type OrderId: AtLeast32BitUnsigned;
+        /// Type of error of orderbook
         type Error;
 
         /// Create new instance
         fn new() -> Self;
 
-        fn new_order(&mut self, order: Self::Order) -> Result<(), Self::Error>;
+        /// Create new order
+        fn new_order(&mut self, key: Unit, order: Self::Order) -> Result<(), Self::Error>;
 
-        fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), Self::Error>;
+        /// Remove order
+        fn remove_order(&mut self, key: Unit, order_id: Self::OrderId) -> Result<(), Self::Error>;
 
-        fn min_order(&self) -> Option<(Self::Index, Self::Index)>;
+        /// Optionally return the minimum order of the orderbook which is (price, index).
+        /// Return `None`, if the orderbook is empty
+        fn min_order(&self) -> Option<(Unit, Unit)>;
 
-        fn max_order(&self) -> Option<(Self::Index, Self::Index)>;
+        /// Optionally return the maximum order of the orderbook which is (price, index).
+        /// Return `None`, if the orderbook is empty
+        fn max_order(&self) -> Option<(Unit, Unit)>;
 
+        /// Check if the orderbook is empty
         fn is_empty(&self) -> bool;
 
-        fn fill_order(&mut self, key: Self::Index, quantity: Self::Unit) -> Result<Option<Self::Unit>, Self::Error>;
+        /// Place a new order only used for limit order
+        fn place_order(&mut self, owner: Account, key: Unit, quantity: Unit, expired_at: BlockNumber) -> Result<Self::OrderId, Self::Error>;
+
+        /// Fill order on orderbook used for order matching
+        fn fill_order(&mut self, key: Unit, quantity: Unit) -> Result<Option<Unit>, Self::Error>;
     }
 
 	/// Index trait for the critbit tree.
@@ -340,31 +384,61 @@ pub mod traits {
     impl_order_book_index!(u64, u128);
     impl_order_book_index!(u128, U256);
 
-    pub trait Order {
-        type OrderId;
-        type Unit; 
+    /// Abstraction for type of order should implement
+    pub trait OrderInterface<Account, Unit, BlockNumber> {
+        /// Type of order id(e.g `u64`)
+        type OrderId: AtLeast32BitUnsigned;
+        /// Type of order error
         type Error;
 
-        fn fill(&mut self, quantity: Self::Unit) -> Option<Self::Unit>;
+        fn new_order(owner: Account, quantity: Unit, expired_at: BlockNumber) -> Self;
 
-        fn add(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error>;
+        /// Create new instance of order
+        fn place_order(&mut self, owner: Account, quantity: Unit, expired_at: BlockNumber) -> Self::OrderId;
 
-        fn remove(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error>;
+        /// Fill the order with the given quantity
+        fn fill_order(&mut self, quantity: Unit) -> Option<Unit>;
 
-        fn done_fill();
-        fn done_add();
-        fn done_remove();
+        /// Add the quantity to the order of the given order id
+        fn add_order(&mut self, maybe_owner: &Account, order_id: Self::OrderId, quantity: Unit) -> Result<(), Self::Error>;
+
+        /// Remove the quantity from the order of the given order id
+        fn remove_order(&mut self, maybe_owner: &Account, order_id: Self::OrderId, quantity: Unit) -> Result<(), Self::Error>;
     }
 
-    impl<Quantity, Account, BlockNumber> Order for Tick<Quantity, Account, BlockNumber> 
+    /// Error type for order
+    #[derive(Debug)]
+    pub enum OrderError {
+        /// Order not found
+        OrderNotExist,
+        /// Order owner mismatch
+        NotOwner,
+        /// Quantity underflow
+        Underflow,
+        /// Quantity overflow
+        Overflow,
+    }
+
+    impl<Unit, Account, BlockNumber> OrderInterface<Account, Unit, BlockNumber> for Tick<Unit, Account, BlockNumber> 
     where
-        Quantity: AtLeast32BitUnsigned + Copy
+        Account: PartialEq,
+        Unit: AtLeast32BitUnsigned + Copy
     {
         type OrderId = OrderId;
-        type Unit = Quantity;
-        type Error = DispatchError;
+        type Error = OrderError;
 
-        fn fill(&mut self, quantity: Self::Unit) -> Option<Self::Unit> {
+        fn new_order(owner: Account, quantity: Unit, expired_at: BlockNumber) -> Self {
+            Self::new(owner, quantity, expired_at)
+        }
+
+        fn place_order(&mut self, owner: Account, quantity: Unit, expired_at: BlockNumber) -> Self::OrderId {
+            let order_id = self.next_order_id;
+            self.next_order_id += 1;
+            self.open_orders.insert(order_id, Order::new(owner, quantity, expired_at));
+            order_id
+        }
+
+        fn fill_order(&mut self, quantity: Unit) -> Option<Unit> {
             let mut filled = quantity;
             let mut to_remove = Vec::new();
             for (id, order) in self.open_orders.iter_mut() {
@@ -388,25 +462,30 @@ pub mod traits {
             // If all orders are fully filled, call `done_fill()` and return `None`
             // Otherwise, return the remaining orders 
             if filled == Zero::zero() {
-                Self::done_fill();
                 None
             } else {
                 Some(filled)
             }
         }
 
-        fn add(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error> {
-            Self::done_add();
-            Ok(())
+        fn add_order(&mut self, maybe_owner: &Account, order_id: Self::OrderId, quantity: Unit) -> Result<(), Self::Error> {
+            if let Some(order) = self.open_orders.get_mut(&order_id) {
+                ensure!(order.owner == *maybe_owner, OrderError::NotOwner);
+                order.quantity = order.quantity.checked_add(&quantity).ok_or(OrderError::Overflow)?;
+                Ok(())
+            } else {
+                return Err(OrderError::OrderNotExist);
+            }
         }
 
-        fn remove(&mut self, order_id: Self::OrderId, quantity: Self::Unit) -> Result<(), Self::Error> {
-            Self::done_remove();
-            Ok(())
+        fn remove_order(&mut self, maybe_owner: &Account, order_id: Self::OrderId, quantity: Unit) -> Result<(), Self::Error> {
+            if let Some(order) = self.open_orders.get_mut(&order_id) {
+                ensure!(order.owner == *maybe_owner, OrderError::NotOwner);
+                order.quantity = order.quantity.checked_sub(&quantity).ok_or(OrderError::Underflow)?;
+                Ok(())
+            } else {
+                return Err(OrderError::OrderNotExist);
+            }
         }
-
-        fn done_fill() {}
-        fn done_add() {}
-        fn done_remove() {}
     }
 }

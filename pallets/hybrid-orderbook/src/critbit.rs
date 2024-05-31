@@ -1,5 +1,5 @@
 
-use self::traits::{OrderBookIndex, Order as OrderTrait};
+use self::traits::{OrderBookIndex, OrderInterface};
 
 use super::*;
 
@@ -464,44 +464,41 @@ impl<K: OrderBookIndex, V> LeafNode<K, V> {
     }
 }
 
-impl<Index, Order> OrderBook for CritbitTree<Index, Order> 
+impl<Account, Unit, Order, BlockNumber> OrderBook<Account, Unit, BlockNumber> for CritbitTree<Unit, Order> 
 where
-    Index: OrderBookIndex,
-    Order: OrderTrait<Unit=Index> + Clone + PartialOrd
+    Unit: OrderBookIndex,
+    Order: OrderInterface<Account, Unit, BlockNumber> + Clone + PartialOrd,
 {
-
-    type Index = Index;
-    type Unit = Index;
     type Order = Order;
-    type OrderId = OrderId;
+    type OrderId = <Order as OrderInterface<Account, Unit, BlockNumber>>::OrderId;
     type Error = CritbitTreeError;
 
     fn new() -> Self {
         CritbitTree::new()
     }
 
-    fn new_order(&mut self, order: Self::Order) -> Result<(), Self::Error> {
+    fn new_order(&mut self, key: Unit, order: Self::Order) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn remove_order(&mut self, order_id: Self::OrderId) -> Result<(), Self::Error> {
+    fn remove_order(&mut self, key: Unit, order_id: Self::OrderId) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn min_order(&self) -> Option<(Self::Index, Self::Index)> {
+    fn min_order(&self) -> Option<(Unit, Unit)> {
         if let Ok(maybe_min) = self.min_leaf() {
             maybe_min
         } else {
-            // TODO
+            // Tree is empty
             None
         } 
     }
 
-    fn max_order(&self) -> Option<(Self::Index, Self::Index)> {
+    fn max_order(&self) -> Option<(Unit, Unit)> {
         if let Ok(maybe_max) = self.max_leaf() {
             maybe_max
         } else {
-            // TODO
+            // Tree is empty
             None
         }
     }
@@ -510,21 +507,39 @@ where
         self.is_empty()
     }
 
-    fn fill_order(&mut self, key: Self::Index, quantity: Self::Unit) -> Result<Option<Self::Unit>, Self::Error> {
+    fn place_order(&mut self, owner: Account, key: Unit, quantity: Unit, expired_at: BlockNumber) -> Result<Self::OrderId, Self::Error> {
+        if let Some(leaf_index) = self.find_leaf(&key)? {
+            if leaf_index == Unit::PARTITION_INDEX {
+                // Should not reach here
+                return Err(CritbitTreeError::LeafNodeShouldExist);
+            }
+            let leaf_node = self.leaves.get_mut(&leaf_index).ok_or(CritbitTreeError::LeafNodeShouldExist)?;
+            Ok(leaf_node.value.place_order(owner, quantity, expired_at))
+        } else {
+            // Insert new leaf node with new order
+            self.insert(key, Order::new_order(owner, quantity, expired_at))?;
+            Ok(Zero::zero())
+        }
+    }
+
+    fn fill_order(&mut self, key: Unit, quantity: Unit) -> Result<Option<Unit>, Self::Error> {
         
         if let Some(leaf_index) = self.find_leaf(&key)? {
-            if leaf_index == Self::Index::PARTITION_INDEX {
+            if leaf_index == Unit::PARTITION_INDEX {
                 // Since tree is empty, we don't do anything
                 return Ok(Some(quantity))
             }
             if let Some(leaf) = self.leaves.get_mut(&leaf_index) {
-                if let Some(remain) = leaf.value.fill(quantity) {
+                if let Some(remain) = leaf.value.fill_order(quantity) {
                     return Ok(Some(remain))
                 } else {
                     // Order has been fully filled
+                    // Leaf node of index `leaf_index` should be removed
+                    self.remove_leaf_by_index(&leaf_index)?;
                     return Ok(None)
                 }
             } else {
+                // no leaf?
                 return Ok(Some(quantity))
             }
         } else {
