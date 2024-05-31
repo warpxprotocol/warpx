@@ -1,4 +1,4 @@
-# Pallet Hybrid Exchange
+# Pallet Hybrid Orderbook
 
 > Full-onchain decentralized exchange that combined orderbook and liquidity pool
 
@@ -116,47 +116,87 @@ Captures trade details like when (e.g. BlockNumber), how much volume (e.g. Volum
 ## Types
 
 ```rust
-struct Market {
-    base_asset: AssetId,
-    quote_asset: AssetId,
-    price_decimals: u8,
-    // pair
-    base_amount: u64,
-    quote_amount: u64
-    amount_shares: u64,
-    // Orderbook
-    bid: Vec<Order>,
-    ask: Vec<Order>,
-    // History
-    history: Vec<Tick>
+// Fully generic type for orderbook which can be configured on Runtime
+pub struct Pool<OrderBook> {
+  /// Liquidity pool asset
+	pub lp_token: AssetId,
+  /// The orderbook of the bid.
+  pub bids: OrderBook,
+  /// The orderbook of the ask.
+  pub asks: OrderBook,
+  /// The next order id of the bid.
+  pub next_bid_order_id: OrderId,
+  /// The next order id of the ask.
+  pub next_ask_order_id: OrderId,
+  /// The fee rate of the taker.
+  pub taker_fee_rate: Permill,
+  /// The size of each tick.
+  pub tick_size: Unit,
+  /// The minimum amount of the order.
+  pub lot_size: Unit,
 }
 
-struct Order<BlockNumber, Account> {
-    owner: Account
-    when: BlockNumber
-    // Amount of this order opens
-    amount_order_open: Balance,
-    // Amount of this order has been dealt
-    amount_order_dealt: Balance,
-    price: Balance,
+pub struct Order<Quantity, Account, BlockNumber> {
+    quantity: Quantity,
+    owner: Account,
+    expired_at: BlockNumber,
 }
 
-struct Liquidity<AssetId, Balance> {
+struct Liquidity<AssetId> {
 	asset_id: AssetId,
-	amount: Balance
 }
 
-struct Tick<BlockNumber, Balance> {
-    when: BlockNumber,
-    volume: Balance,
-    price: Balance,
-    order_type: u8
+pub struct Tick<Quantity, Account, BlockNumber> {
+    next_order_id: OrderId,
+    open_orders: BTreeMap<OrderId, Order<Quantity, Account, BlockNumber>>,
+}
+```
+
+## OrderBook Data Structure
+
+### Critbit Tree
+
+- Fully generic type for key/value
+- Index of tree is partitioned based on `K::PARTITION_INDEX`
+- If index is less than `K::PARTITION_INDEX`, it means _internal nodes_. Otherwise it means _leaf nodes_.
+- `key` is `price` which would be based on tick size
+- `value` is `Tick`
+
+```rust
+pub struct CritbitTree<K, V> {
+    /// Index of the root node which is part of the internal nodes.
+    root: K,
+    /// The internal nodes of the tree.
+    internal_nodes: BTreeMap<K, InternalNode<K>>,
+    /// The leaf nodes of the tree.
+    leaves: BTreeMap<K, LeafNode<K, V>>,
+    /// Index of the largest value of the leaf nodes. Could be updated for every insertion.
+    max_leaf_index: K,
+    /// Index of the smallest value of the leaf nodes. Could be updated for every insertion.
+    min_leaf_index: K,
+    /// Index of the next internal node which should be incremented for every insertion.
+    next_internal_node_index: K,
+    /// Index of the next leaf node which should be incremented for every insertion.
+    next_leaf_node_index: K,
 }
 
-pub enum OrderType<Price> {
-	Market,
-	Limit(price),
-	Stop { at: Price, delta: Permil, limit: Price }
-	StopLimit { below: Price, limit: Price}
+pub struct LeafNode<K, V> {
+    /// Parent index of the node.
+    parent: K,
+    /// Key of the node.
+    key: K,
+    /// Value of the node.
+    value: V
+}
+
+pub struct InternalNode<K> {
+    /// Mask for branching the tree based on the critbit.
+    mask: K,
+    /// Parent index of the node.
+    parent: K,
+    /// Left child index of the node.
+    left: K,
+    /// Right child index of the node.
+    right: K,
 }
 ```
