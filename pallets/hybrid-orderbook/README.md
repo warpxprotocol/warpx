@@ -36,6 +36,7 @@ User stop orders utilize a scheduler to automatically execute transactions at sp
   Bridges using light client proofs enable cross-chain trading between different consensus blockchains.
 
 - Private Trading
+  It may be possible to hide order amounts(e.g quantity) and who placed them(e.g orderer) with zero-knowledge proofs. Only the bid/ask events are visible on the explorer
 
 **Two options for privacy:**
 
@@ -56,7 +57,7 @@ Holds information about all available trading pairs.
 
 ### Dispatchables
 
-**create_pair(asset_id, asset_id)**
+**create_pool(base_asset, quote_asset, taker_fee_rate, tick_size, lot_size)**
 
 _Creates a new tradeable pair._
 
@@ -65,33 +66,25 @@ _Creates a new tradeable pair._
 - `market_id` increments for each created pair
 - Checks if account owns `asset_id`
 
-**add_liquidity(market_id, liquidity)**
+**add_liquidity(base_asset, quote_asset)**
 
 _Adds liquidity to the pair associated with market_id. Earns LP tokens as reward._
 
-**order(market_id, order_type)**
+**remove_liquidity(base_asset, quote_asset)**
 
-_Places an order of order_type for the market market_id. Order fills create Tick events stored in history._
+_Allows you to remove liquidity by providing the `lp_token` tokens that will be burned in the process._
 
-- `OrderType::Market`
+**limit_order(base_asset, quote_asset, is_bid, price, quantity)**
 
-Fills from best price between pool or orderbook.
+_Places an limit order. Order fills create Tick events stored in history._
 
-- `OrderType::Limit(price)`
+**market_order(base_asset, quote_asset, quantity, is_bid)**
 
-Places order at given price.
+**stop_order(base_asset, quote_asset)**
 
-- `OrderType::Stop { at: Price, delta: Permil, limit: Price }`
+**stop_limit_order(base_asset, quote_asset)**
 
-  - When price reaches at (above current price), places order at limit offset by `delta(%)` from highest price.
-  - Triggers `Call::order(market_id, OrderType::Limit)` when conditions met.
-
-- `OrderType::StopLimit { below: Price, limit: Price }`
-
-  - Places limit order at limit when price reaches below.
-  - Triggers `Call::order(market_id, OrderType::Limit)` when price hit.
-
-**cancel(market_id)**
+**cancel_order(base_asset, quote_asset)**
 
 _Cancels order for market_id_
 
@@ -101,9 +94,9 @@ _Cancels order for market_id_
 
 ## Terminology
 
-**Market**
+**Pool**
 
-Holds trade data for a pair (e.g. `ETH <> USD`), including LiquidityPool and Orderbook info. Stores all trades.
+Holds trade data for a pair (e.g. `ETH <> USD`), including LiquidityPool and Orderbook info.
 
 **Order**
 
