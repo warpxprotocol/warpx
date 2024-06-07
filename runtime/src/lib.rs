@@ -310,6 +310,7 @@ parameter_types! {
 
 ord_parameter_types! {
 	pub const HybridOrderBookOrigin: AccountId = AccountIdConversion::<AccountId>::into_account_truncating(&HybridOrderBookPalletId::get());
+	pub const OrderExpiration: BlockNumber = DAYS;
 }
 
 impl pallet_hybrid_orderbook::Config for Runtime {
@@ -327,6 +328,7 @@ impl pallet_hybrid_orderbook::Config for Runtime {
 	type PoolSetupFeeAsset = Native;
 	type PoolSetupFeeTarget = ResolveAssetTo<HybridOrderBookOrigin, Self::Assets>;
 	type PalletId = HybridOrderBookPalletId;
+	type OrderExpiration = OrderExpiration;
 	type LPFee = ConstU32<3>; // means 0.3%
 	type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
 	type WeightInfo = pallet_hybrid_orderbook::weights::SubstrateWeight<Runtime>;

@@ -35,12 +35,15 @@ use frame_support::{
 };
 use frame_system::{EnsureSigned, EnsureSignedBy};
 use sp_arithmetic::Permill;
+use sp_core::ConstU64;
 use sp_runtime::{
-	traits::{AccountIdConversion, IdentityLookup},
+	traits::{AccountIdConversion, BlockNumber, IdentityLookup},
 	BuildStorage,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
+pub type AccountId = u128;
+pub type Balance = u64;
 
 construct_runtime!(
 	pub enum Test
@@ -55,17 +58,17 @@ construct_runtime!(
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
-	type AccountId = u128;
+	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block;
-	type AccountData = pallet_balances::AccountData<u128>;
+	type AccountData = pallet_balances::AccountData<Balance>;
 }
 
 impl pallet_balances::Config for Test {
-	type Balance = u64;
+	type Balance = Balance;
 	type DustRemoval = ();
 	type RuntimeEvent = RuntimeEvent;
-	type ExistentialDeposit = ConstU128<100>;
+	type ExistentialDeposit = ConstU64<100>;
 	type AccountStore = System;
 	type WeightInfo = ();
 	type MaxLocks = ();
@@ -79,18 +82,18 @@ impl pallet_balances::Config for Test {
 
 impl pallet_assets::Config<Instance1> for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Balance = u128;
+	type Balance = Balance;
 	type RemoveItemsLimit = ConstU32<1000>;
 	type AssetId = u32;
 	type AssetIdParameter = u32;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<Self::AccountId>>;
 	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
-	type AssetDeposit = ConstU128<1>;
-	type AssetAccountDeposit = ConstU128<10>;
-	type MetadataDepositBase = ConstU128<1>;
-	type MetadataDepositPerByte = ConstU128<1>;
-	type ApprovalDeposit = ConstU128<1>;
+	type AssetDeposit = ConstU64<1>;
+	type AssetAccountDeposit = ConstU64<10>;
+	type MetadataDepositBase = ConstU64<1>;
+	type MetadataDepositPerByte = ConstU64<1>;
+	type ApprovalDeposit = ConstU64<1>;
 	type StringLimit = ConstU32<50>;
 	type Freezer = ();
 	type Extra = ();
@@ -103,7 +106,7 @@ impl pallet_assets::Config<Instance1> for Test {
 
 impl pallet_assets::Config<Instance2> for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Balance = u128;
+	type Balance = Balance;
 	type RemoveItemsLimit = ConstU32<1000>;
 	type AssetId = u32;
 	type AssetIdParameter = u32;
@@ -111,11 +114,11 @@ impl pallet_assets::Config<Instance2> for Test {
 	type CreateOrigin =
 		AsEnsureOriginWithArg<EnsureSignedBy<AssetConversionOrigin, Self::AccountId>>;
 	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
-	type AssetDeposit = ConstU128<0>;
-	type AssetAccountDeposit = ConstU128<0>;
-	type MetadataDepositBase = ConstU128<0>;
-	type MetadataDepositPerByte = ConstU128<0>;
-	type ApprovalDeposit = ConstU128<0>;
+	type AssetDeposit = ConstU64<0>;
+	type AssetAccountDeposit = ConstU64<0>;
+	type MetadataDepositBase = ConstU64<0>;
+	type MetadataDepositPerByte = ConstU64<0>;
+	type ApprovalDeposit = ConstU64<0>;
 	type StringLimit = ConstU32<50>;
 	type Freezer = ();
 	type Extra = ();
@@ -139,9 +142,14 @@ ord_parameter_types! {
 pub type NativeAndAssets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, u128>;
 pub type PoolIdToAccountId =
 	AccountIdConverter<AssetConversionPalletId, (NativeOrWithId<u32>, NativeOrWithId<u32>)>;
-pub type AscendingLocator = Ascending<u128, NativeOrWithId<u32>, PoolIdToAccountId>;
+pub type AscendingLocator = Ascending<u128, NativeOrWithId<u32>>;
 pub type WithFirstAssetLocator =
-	WithFirstAsset<Native, u128, NativeOrWithId<u32>, PoolIdToAccountId>;
+	WithFirstAsset<Native, u128, NativeOrWithId<u32>>;
+pub type OrderbookLocator = BaseQuoteAsset<AccountId, NativeOrWithId<u32>>;
+
+parameter_types! {
+	pub const OrderExpiration: u64 = 100;
+}
 
 impl Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -149,11 +157,13 @@ impl Config for Test {
 	type HigherPrecisionUnit = u128;
 	type AssetKind = NativeOrWithId<u32>;
 	type Assets = NativeAndAssets;
+	type OrderBook = CritbitTree<Balance, Tick<Balance, AccountId, u64>>;
+	type OrderExpiration = OrderExpiration;
 	type PoolId = (Self::AssetKind, Self::AssetKind);
-	type PoolLocator = Chain<WithFirstAssetLocator, AscendingLocator>;
+	type PoolLocator = OrderbookLocator;
 	type PoolAssetId = u32;
 	type PoolAssets = PoolAssets;
-	type PoolSetupFee = ConstU128<100>; // should be more or equal to the existential deposit
+	type PoolSetupFee = ConstU64<100>; // should be more or equal to the existential deposit
 	type PoolSetupFeeAsset = Native;
 	type PoolSetupFeeTarget = ResolveAssetTo<AssetConversionOrigin, Self::Assets>;
 	type PalletId = AssetConversionPalletId;
@@ -161,7 +171,7 @@ impl Config for Test {
 	type LPFee = ConstU32<3>; // means 0.3%
 	type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
 	type MaxSwapPathLength = ConstU32<4>;
-	type MintMinLiquidity = ConstU128<100>; // 100 is good enough when the main currency has 12 decimals.
+	type MintMinLiquidity = ConstU64<100>; // 100 is good enough when the main currency has 12 decimals.
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = ();
 }
