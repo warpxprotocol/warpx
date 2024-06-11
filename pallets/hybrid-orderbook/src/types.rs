@@ -25,8 +25,43 @@ use sp_std::vec::Vec;
 
 pub use traits::{OrderBook, OrderBookIndex};
 
+struct WrappedOrderId(u64);
+impl WrappedOrderId {
+	fn is_bid(&self) -> bool {
+		self.0 & (1 << (OrderId::BITS - 1)) == 0
+	}
+
+	pub fn bid_order_id(order_id: OrderId) -> Self {
+		Self(order_id & !(1 << (OrderId::BITS - 1)))
+	}
+
+	pub fn ask_order_id(order_id: OrderId) -> Self {
+		Self(order_id | (1 << (OrderId::BITS - 1)))
+	}
+}
+
 /// Identifier for each order
 pub type OrderId = u64;
+
+#[derive(Decode, Encode, Debug, Clone, Default, PartialEq, Eq, MaxEncodedLen, TypeInfo)]
+pub enum CancelOrderType<Quantity> {
+	#[default]
+	All,
+	Partial(Quantity),
+}
+
+/// Record for order
+#[derive(Decode, Encode, Default, PartialEq, Eq, MaxEncodedLen, TypeInfo)]
+pub struct OrderRecord<K> {
+	key: K,
+	order_id: OrderId,
+}
+
+impl<K> OrderRecord<K> {
+	pub fn new(key: K, order_id: OrderId) -> Self {
+		Self { key, order_id }
+	}
+}
 
 /// Represents a swap path with associated asset amounts indicating how much of the asset needs to
 /// be deposited to get the following asset's amount withdrawn (this is inclusive of fees).
@@ -152,23 +187,23 @@ impl<T: Config> Pool<T> {
 	pub fn place_order(
 		&mut self,
 		is_bid: bool,
-		owner: T::AccountId,
+		owner: &T::AccountId,
 		price: T::Unit,
 		quantity: T::Unit,
-	) -> Result<OrderId, Error<T>> {
+	) -> Result<(T::Unit, OrderId), Error<T>> {
 		let current = frame_system::Pallet::<T>::block_number();
 		let expired_at = current + T::OrderExpiration::get();
 		let order_id = if is_bid {
 			self.bids
-				.place_order(owner, price, quantity, expired_at)
+				.place_order(&owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?
 		} else {
 			self.asks
-				.place_order(owner, price, quantity, expired_at)
+				.place_order(&owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?
 		};
 
-		Ok(order_id.into())
+		Ok((price, order_id.into()))
 	}
 
 	/// Fill `quantity` amount of orders of given `price`.
@@ -185,6 +220,24 @@ impl<T: Config> Pool<T> {
 		};
 
 		res.map_err(|_| Error::<T>::ErrorOnFillOrder)
+	}
+
+	/// Cancel order of `owner`
+	pub fn cancel_order(
+		&mut self,
+		owner: &T::AccountId,
+		pool_id: &T::PoolId,
+		order_id: OrderId,
+	) -> Result<OrderId, Error<T>> {	
+		// Sanity check
+		let OrderRecord { key, order_id } = OrderRecords::<T>::get(owner, pool_id).ok_or(Error::<T>::OrderNotFound)?;
+		if Self::check_is_bid(order_id) {
+			self.asks.remove(key, order_id);
+		} else {
+			self.bids.remove(key, order_id);
+		}
+
+		Ok(order_id)
 	}
 }
 
@@ -352,6 +405,9 @@ pub mod traits {
 		/// Create new order
 		fn new_order(&mut self, key: Unit, order: Self::Order) -> Result<(), Self::Error>;
 
+		/// Find an order
+		fn find_order(&self, key: Unit, order_id: Self::OrderId) -> Result<Option<Self::Order>, Self::Error>;
+
 		/// Remove order
 		fn remove_order(&mut self, key: Unit, order_id: Self::OrderId) -> Result<(), Self::Error>;
 
@@ -369,7 +425,7 @@ pub mod traits {
 		/// Place a new order only used for limit order
 		fn place_order(
 			&mut self,
-			owner: Account,
+			owner: &Account,
 			key: Unit,
 			quantity: Unit,
 			expired_at: BlockNumber,
@@ -427,10 +483,12 @@ pub mod traits {
 
 		fn new_order(owner: Account, quantity: Unit, expired_at: BlockNumber) -> Self;
 
+		fn find_order(&self, order_id: Self::OrderId) -> Option<Self>;
+
 		/// Create new instance of order
 		fn place_order(
 			&mut self,
-			owner: Account,
+			owner: &Account,
 			quantity: Unit,
 			expired_at: BlockNumber,
 		) -> Self::OrderId;
@@ -471,7 +529,7 @@ pub mod traits {
 	impl<Unit, Account, BlockNumber> OrderInterface<Account, Unit, BlockNumber>
 		for Tick<Unit, Account, BlockNumber>
 	where
-		Account: PartialEq,
+		Account: PartialEq + Clone,
 		Unit: AtLeast32BitUnsigned + Copy,
 	{
 		type OrderId = OrderId;
@@ -481,15 +539,20 @@ pub mod traits {
 			Self::new(owner, quantity, expired_at)
 		}
 
+		fn find_order(&self, order_id: Self::OrderId) -> Option<Self> {
+			self.open_orders.get(&order_id).cloned()
+		}
+
 		fn place_order(
 			&mut self,
-			owner: Account,
+			owner: &Account,
 			quantity: Unit,
 			expired_at: BlockNumber,
 		) -> Self::OrderId {
 			let order_id = self.next_order_id;
 			self.next_order_id += 1;
-			self.open_orders.insert(order_id, Order::new(owner, quantity, expired_at));
+			self.open_orders
+				.insert(order_id, Order::new(owner.clone(), quantity, expired_at));
 			order_id
 		}
 

@@ -466,6 +466,7 @@ impl<K: OrderBookIndex, V> LeafNode<K, V> {
 
 impl<Account, Unit, Order, BlockNumber> OrderBook<Account, Unit, BlockNumber> for CritbitTree<Unit, Order> 
 where
+    Account: Clone,
     Unit: OrderBookIndex,
     Order: OrderInterface<Account, Unit, BlockNumber> + Clone + PartialOrd,
 {
@@ -479,6 +480,18 @@ where
 
     fn new_order(&mut self, key: Unit, order: Self::Order) -> Result<(), Self::Error> {
         Ok(())
+    }
+
+    fn find_order(&self, key: Unit, order_id: Self::OrderId) -> Result<Option<Self::Order>, Self::Error> {
+        if let Some(leaf_index) = self.find_leaf(&key)? {
+            // Empty tree
+            if leaf_index == Unit::PARTITION_INDEX {
+                return Ok(None);
+            }
+            Ok(None)
+        } else {
+            Ok(None)
+        }
     }
 
     fn remove_order(&mut self, key: Unit, order_id: Self::OrderId) -> Result<(), Self::Error> {
@@ -507,7 +520,7 @@ where
         self.is_empty()
     }
 
-    fn place_order(&mut self, owner: Account, key: Unit, quantity: Unit, expired_at: BlockNumber) -> Result<Self::OrderId, Self::Error> {
+    fn place_order(&mut self, owner: &Account, key: Unit, quantity: Unit, expired_at: BlockNumber) -> Result<Self::OrderId, Self::Error> {
         if let Some(leaf_index) = self.find_leaf(&key)? {
             if leaf_index == Unit::PARTITION_INDEX {
                 // Should not reach here
@@ -517,7 +530,7 @@ where
             Ok(leaf_node.value.place_order(owner, quantity, expired_at))
         } else {
             // Insert new leaf node with new order
-            self.insert(key, Order::new_order(owner, quantity, expired_at))?;
+            self.insert(key, Order::new_order(owner.clone(), quantity, expired_at))?;
             Ok(Zero::zero())
         }
     }

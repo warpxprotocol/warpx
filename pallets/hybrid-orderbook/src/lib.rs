@@ -109,7 +109,7 @@ const LOG_TARGET: &str = "FRAME: Hybrid-Orderbook";
 pub mod pallet {
 
 	use super::*;
-	use frame_support::pallet_prelude::{DispatchResult, *};
+	use frame_support::{pallet_prelude::{DispatchResult, *}, Twox64Concat};
 	use frame_system::pallet_prelude::*;
 	use sp_arithmetic::{traits::Unsigned, Permill};
 
@@ -215,6 +215,10 @@ pub mod pallet {
 	#[pallet::unbounded]
 	pub type Pools<T: Config> = StorageMap<_, Blake2_128Concat, T::PoolId, Pool<T>, OptionQuery>;
 
+	#[pallet::storage]
+	#[pallet::unbounded]
+	pub type OrderRecords<T: Config> = StorageDoubleMap<_, Twox64Concat, T::AccountId, Twox64Concat, T::PoolId, OrderRecord<T::Unit>>;
+
 	/// Stores the `PoolAssetId` that is going to be used for the next lp token.
 	/// This gets incremented whenever a new lp pool is created.
 	#[pallet::storage]
@@ -318,13 +322,41 @@ pub mod pallet {
 			filled: T::Unit,
 			is_bid: bool,
 		},
+		/// A limit order has been placed.
 		LimitOrder {
+			/// The pool id of the pool that the order was placed from.
+			pool_id: T::PoolId,
+			/// The account that the order was placed from.
 			maker: T::AccountId,
+			/// The price of the order.
 			order_price: T::Unit,
+			/// The quantity of the order.
 			order_quantity: T::Unit,
 		},
+		/// A market order has been placed.
 		MarketOrder {
+			/// The account that the order was placed from.
 			taker: T::AccountId,
+		},
+		/// A limit order has been placed.
+		LimitOrderPlaced {
+			/// The account that the order was placed from.
+			maker: T::AccountId,
+			/// The price of the order.
+			order_price: T::Unit,
+			/// The quantity of the order.
+			order_quantity: T::Unit,
+			/// Whether the order is a bid.
+			is_bid: bool,
+		},
+		/// An order has been cancelled.
+		OrderCancelled {
+			/// The pool id of the pool that the order was cancelled from.
+			pool_id: T::PoolId,
+			/// The account that the order was cancelled from.
+			owner: T::AccountId,
+			/// The id of the order.
+			order_id: OrderId,
 		},
 	}
 
@@ -387,6 +419,10 @@ pub mod pallet {
 		ErrorOnFillOrder,
 		/// An error occurred while placing an order.
 		ErrorOnPlaceOrder,
+		/// An error occurred while cancelling an order.
+		ErrorOnCancelOrder,
+		/// Order not found.
+		OrderNotFound
 	}
 
 	#[pallet::hooks]
@@ -763,7 +799,7 @@ pub mod pallet {
 			quantity: T::Unit,
 		) -> DispatchResult {
 			let maker = ensure_signed(origin)?;
-			Self::do_limit_order(maker, price, quantity, is_bid, &*base_asset, &*quote_asset)?;
+			Self::do_limit_order(maker, price, quantity, &*base_asset, &*quote_asset)?;
 			Ok(())
 		}
 
@@ -772,11 +808,13 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::touch(3))]
 		pub fn cancel_order(
 			origin: OriginFor<T>,
+			order_id: OrderId,
 			base_asset: Box<T::AssetKind>,
 			quote_asset: Box<T::AssetKind>,
+			cancel_type: CancelOrderType<T::Unit>,
 		) -> DispatchResult {
 			let owner = ensure_signed(origin)?;
-			Self::do_cancel_order(owner, &base_asset, &quote_asset)?;
+			Self::do_cancel_order(cancel_type, order_id, &owner, &base_asset, &quote_asset, quantity)?;
 			Ok(())
 		}
 
@@ -792,6 +830,15 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+
+		fn check_is_bid(order_id: OrderId) -> bool {
+			if (1 << (OrderId::BITS - 1)) & order_id == 0 {
+				false
+			} else {
+				true
+			}
+		}
+
 		fn get_pool(
 			base_asset: &T::AssetKind,
 			quote_asset: &T::AssetKind,
@@ -833,7 +880,8 @@ pub mod pallet {
 			quote_asset: &T::AssetKind,
 		) -> DispatchResult {
 			// Validity check
-			let pool = Self::get_pool(base_asset, quote_asset)?;
+			let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset).map_err(|_| Error::<T>::InvalidAssetPair)?;
+			let mut pool = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
 			ensure!(order_quantity > Zero::zero(), Error::<T>::WrongDesiredAmount);
 			ensure!(order_price > Zero::zero(), Error::<T>::InvalidOrderPrice);
 			// Price of order could only be set to the multiple of `tick_size`
@@ -862,9 +910,12 @@ pub mod pallet {
 				)?;
 			} else {
 				// place order on orderbook
-				Self::do_place_limit_order(is_bid, order_price)?;
+				Self::do_place_order(is_bid, &pool_id, &mut pool, &maker, order_price, order_quantity)?;
 			}
+			// Update pool 
+			Pools::<T>::insert(&pool_id, pool);
 			Self::deposit_event(Event::<T>::LimitOrder {
+				pool_id,
 				maker: maker.clone(),
 				order_price,
 				order_quantity,
@@ -872,16 +923,45 @@ pub mod pallet {
 			Ok(())
 		}
 
-		pub(crate) fn do_place_limit_order(is_bid: bool, price: T::Unit) -> DispatchResult {
+		pub(crate) fn do_place_order(
+			is_bid: bool,
+			pool_id: &T::PoolId,
+			pool: &mut Pool<T>,
+			maker: &T::AccountId,
+			price: T::Unit,
+			quantity: T::Unit,
+		) -> DispatchResult {
+			let (price, order_id) = pool.place_order(is_bid, maker, price, quantity)
+				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?;
+			OrderRecords::<T>::insert(maker, pool_id, OrderRecord::new(price, order_id));
+			Self::deposit_event(Event::<T>::LimitOrderPlaced {
+				maker: maker.clone(),
+				order_price: price,
+				order_quantity: quantity,
+				is_bid,
+			});
 			Ok(())
 		}
 
 		pub(crate) fn do_cancel_order(
-			_owner: T::AccountId,
-			_base_asset: &T::AssetKind,
-			_quote_asset: &T::AssetKind,
+			cancel_type: CancelOrderType<T::Unit>,
+			owner: &T::AccountId,
+			order_id: OrderId,
+			base_asset: &T::AssetKind,
+			quote_asset: &T::AssetKind,
 		) -> DispatchResult {
-			Ok(())
+			let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset).map_err(|_| Error::<T>::InvalidAssetPair)?;
+			Pools::<T>::try_mutate(pool_id.clone(), |pool| -> DispatchResult {
+				let mut updated = pool.take().ok_or(Error::<T>::PoolNotFound)?;
+				let order_id = updated.cancel_order(owner, &pool_id, order_id).map_err(|_| Error::<T>::ErrorOnCancelOrder)?;
+				*pool = Some(updated);
+				Self::deposit_event(Event::<T>::OrderCancelled {
+					pool_id,
+					owner: owner.clone(),
+					order_id
+				});
+				Ok(())
+			})
 		}
 
 		pub(crate) fn do_stop_limit_order(_owner: T::AccountId, _pool: Pool<T>) -> DispatchResult {
@@ -928,7 +1008,7 @@ pub mod pallet {
 								quote_asset,
 							)?;
 						} else {
-							// Swap up to `closest` from Pool
+							// Swap up to `max_swap_quantity` from pool
 							Self::do_fill_pool(
 								is_bid,
 								orderer,
