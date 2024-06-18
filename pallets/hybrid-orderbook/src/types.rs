@@ -612,6 +612,9 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self;
 
+		/// Return `true` if there are no open orders
+		fn is_empty(&self) -> bool;
+
 		/// Create new instance of order and return `OrderId` of that order.
 		fn placed(
 			&mut self,
@@ -672,6 +675,10 @@ pub mod traits {
 			Self::new(order_id, owner, quantity, expired_at)
 		}
 
+		fn is_empty(&self) -> bool {
+			self.open_orders.is_empty()
+		}
+
 		fn placed(
 			&mut self,
 			order_id: Self::OrderId,
@@ -684,18 +691,19 @@ pub mod traits {
 		}
 
 		fn filled(&mut self, quantity: Unit) -> Option<Unit> {
-			let mut filled = quantity;
+			let mut filled = Zero::zero();
 			let mut to_remove = Vec::new();
 			for (id, order) in self.open_orders.iter_mut() {
 				// All orders are filled
-				if filled == Zero::zero() {
+				let remain = quantity - filled;
+				if remain == Zero::zero() {
 					break;
 				}
-				if order.quantity >= quantity {
-					order.quantity -= quantity;
-					filled = Zero::zero();
+				if order.quantity >= remain {
+					order.quantity -= remain;
+					filled = remain;
 				} else {
-					filled -= order.quantity;
+					filled += order.quantity;
 					// Order of `id` is fully filled and should be removed
 					to_remove.push(*id);
 				}
@@ -707,10 +715,9 @@ pub mod traits {
 			// If all orders are fully filled, call `done_fill()` and return `None`
 			// Otherwise, return the remaining orders
 			if filled == Zero::zero() {
-				None
-			} else {
-				Some(filled)
+				return None
 			}
+			Some(filled)
 		}
 
 		fn added(

@@ -621,8 +621,10 @@ where
 					return Ok(Some(remain))
 				} else {
 					// Order has been fully filled
-					// Leaf node of index `leaf_index` should be removed
-					self.remove_leaf_by_index(&leaf_index)?;
+					if leaf.value.is_empty() {
+						// There is no value left for this leaf so `leaf_index` should be removed
+						self.remove_leaf_by_index(&leaf_index)?;
+					}
 					return Ok(None)
 				}
 			} else {

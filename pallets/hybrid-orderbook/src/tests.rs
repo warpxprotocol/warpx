@@ -356,5 +356,7 @@ fn limit_order_works() {
 			50,
 			is_bid,
 		));
+		let pool = Pools::<Test>::get(&pool_id).unwrap();
+		println!("{:?}", pool.asks);
 	})
 }

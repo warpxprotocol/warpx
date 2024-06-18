@@ -433,6 +433,8 @@ pub mod pallet {
 		NoPermission,
 		/// Quantity of order is greater than existed order
 		OverOrderQuantity,
+		/// Operation can't be done
+		NoOps,
 	}
 
 	#[pallet::hooks]
@@ -865,8 +867,11 @@ pub mod pallet {
 		) -> DispatchResult {
 			// Order quantity should be greater than 0
 			ensure!(quantity > Zero::zero(), Error::<T>::WrongDesiredAmount);
-			let pool = Self::get_pool(base_asset, quote_asset)?;
-			Self::do_match_order(is_bid, taker, &pool, base_asset, quote_asset, quantity)?;
+			let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset)
+				.map_err(|_| Error::<T>::InvalidAssetPair)?;
+			let mut pool = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
+			Self::do_match_order(is_bid, taker, &mut pool, base_asset, quote_asset, quantity)?;
+			Pools::<T>::insert(pool_id, pool);
 			Self::deposit_event(Event::<T>::MarketOrder { taker: taker.clone() });
 			Ok(())
 		}
@@ -912,7 +917,7 @@ pub mod pallet {
 				Self::do_match_order(
 					is_bid,
 					&maker,
-					&pool,
+					&mut pool,
 					&base_asset,
 					&quote_asset,
 					order_quantity,
@@ -996,7 +1001,7 @@ pub mod pallet {
 		pub(crate) fn do_match_order(
 			is_bid: bool,
 			orderer: &T::AccountId,
-			pool: &Pool<T>,
+			pool: &mut Pool<T>,
 			base_asset: &T::AssetKind,
 			quote_asset: &T::AssetKind,
 			order_quantity: T::Unit,
@@ -1020,7 +1025,7 @@ pub mod pallet {
 							quote_asset,
 							remain_orders,
 						)?
-						.map_or(Zero::zero(), |q| q);
+						.ok_or(Error::<T>::NoOps)?;
 						if_std! {
 							println!(
 								"
@@ -1033,9 +1038,6 @@ pub mod pallet {
 						}
 						if remain_orders <= max_swap_quantity {
 							// All orders filled from pool
-							if_std! {
-							 println!("💦 Fill order from pool")
-							}
 							Self::do_fill_pool(
 								is_bid,
 								orderer,
@@ -1043,10 +1045,13 @@ pub mod pallet {
 								base_asset,
 								quote_asset,
 							)?;
+							if_std! {
+							 println!("💦 Filled all {:?} orders from pool", remain_orders)
+							}
 							remain_orders = Zero::zero();
 						} else {
 							if_std! {
-							 println!("💦 Fill order from Pool")
+								println!("💦 Filled {:?} orders from Pool", max_swap_quantity);
 							}
 							// Swap up to `max_swap_quantity` from pool
 							Self::do_fill_pool(
@@ -1058,16 +1063,10 @@ pub mod pallet {
 							)?;
 							// Remain orders subsume the closest will be filled from Orderbook
 							remain_orders -= max_swap_quantity;
-							let mut orderbook =
-								if is_bid { pool.ask_orders() } else { pool.bid_orders() };
 							if_std! {
-							 println!("📖 Fill order from Book")
+								println!("📖 Filled {:?} orders from Book", remain_orders);
 							}
-							Self::do_fill_book(
-								&mut orderbook,
-								orderbook_price,
-								&mut remain_orders,
-							)?;
+							Self::do_fill_book(is_bid, pool, orderbook_price, &mut remain_orders)?;
 						}
 					},
 					// End loop, if there are no orders on Orderbook
@@ -1077,6 +1076,9 @@ pub mod pallet {
 			// Fill remain orders from pool if any(e.g no orders on OrderBook)
 			if remain_orders > Zero::zero() {
 				Self::do_fill_pool(is_bid, orderer, remain_orders, base_asset, quote_asset)?;
+			}
+			if_std! {
+			 println!("Final Pool Price after matching => {:?}", Self::pool_price(base_asset, quote_asset).unwrap());
 			}
 
 			Self::deposit_event(Event::<T>::OrderMatched {
@@ -1118,13 +1120,14 @@ pub mod pallet {
 		}
 
 		fn do_fill_book(
-			orders: &mut T::OrderBook,
+			is_bid: bool,
+			pool: &mut Pool<T>,
 			price: T::Unit,
 			order_quantity: &mut T::Unit,
 		) -> Result<(), Error<T>> {
 			let q = order_quantity.clone();
-			let remain = orders
-				.fill_order(price, q)
+			let remain = pool
+				.fill_order(is_bid, price, q)
 				.map_err(|_| Error::<T>::ErrorOnFillOrder)?
 				.map_or(Zero::zero(), |r| r);
 			*order_quantity -= remain;
@@ -1159,11 +1162,9 @@ pub mod pallet {
 			let (b_r, q_r) = Self::get_reserves(base_asset, quote_asset)?;
 			let mut min: T::Unit = Zero::zero();
 			let mut max: T::Unit = order_quantity;
-			let mut mid: T::Unit = Zero::zero();
-			let mut pool_price: T::Unit = Self::quote(&One::one(), &b_r, &q_r)?;
 			while min < max {
-				mid = (min + max + One::one()) / 2u32.into();
-				pool_price = if is_bid {
+				let mid = (min + max + One::one()) / 2u32.into();
+				let pool_price = if is_bid {
 					// If it is bid order, get `amount_in` of `quote_asset` with given `out` of
 					// `base_asset` quantity of `base_asset`
 					let amount_in = Self::get_amount_in(&mid, &q_r, &b_r)?;
@@ -1174,26 +1175,13 @@ pub mod pallet {
 					let amount_out = Self::get_amount_out(&mid, &b_r, &q_r)?;
 					Self::quote(&One::one(), &(b_r + mid), &(q_r - amount_out))?
 				};
-				if_std! {
-					println!("Mid => {:?}, Pool Price => {:?}", mid, pool_price);
-				}
 				// Return immediately when pool price after swap is equal to orderbook price
 				if pool_price == target {
-					if_std! {
-						println!("Find a target => {:?}", mid);
-					}
 					return Ok(Some(mid));
 				}
 				// Narrow it down if it is not
 				if pool_price < target {
-					// 'pool_price' should become bigger
-					// if is_bid {
-					// 	// If it is bid order, more base assets should be swapped out
-					// 	min = mid + One::one();
-					// } else {
-					// 	// If it is ask order, less base assets should be swapped in
-					// 	max = mid - One::one();
-					// }
+					// Return immediately the quantity if it is less than target
 					return Ok(Some(mid));
 				} else {
 					// 'pool_price' should become smaller
