@@ -1033,6 +1033,9 @@ pub mod pallet {
 						}
 						if remain_orders <= max_swap_quantity {
 							// All orders filled from pool
+							if_std! {
+							 println!("💦 Fill order from pool")
+							}
 							Self::do_fill_pool(
 								is_bid,
 								orderer,
@@ -1040,7 +1043,11 @@ pub mod pallet {
 								base_asset,
 								quote_asset,
 							)?;
+							remain_orders = Zero::zero();
 						} else {
+							if_std! {
+							 println!("💦 Fill order from Pool")
+							}
 							// Swap up to `max_swap_quantity` from pool
 							Self::do_fill_pool(
 								is_bid,
@@ -1053,6 +1060,9 @@ pub mod pallet {
 							remain_orders -= max_swap_quantity;
 							let mut orderbook =
 								if is_bid { pool.ask_orders() } else { pool.bid_orders() };
+							if_std! {
+							 println!("📖 Fill order from Book")
+							}
 							Self::do_fill_book(
 								&mut orderbook,
 								orderbook_price,
@@ -1177,13 +1187,14 @@ pub mod pallet {
 				// Narrow it down if it is not
 				if pool_price < target {
 					// 'pool_price' should become bigger
-					if is_bid {
-						// If it is bid order, more base assets should be swapped out
-						min = mid + One::one();
-					} else {
-						// If it is ask order, less base assets should be swapped in
-						max = mid - One::one();
-					}
+					// if is_bid {
+					// 	// If it is bid order, more base assets should be swapped out
+					// 	min = mid + One::one();
+					// } else {
+					// 	// If it is ask order, less base assets should be swapped in
+					// 	max = mid - One::one();
+					// }
+					return Ok(Some(mid));
 				} else {
 					// 'pool_price' should become smaller
 					if is_bid {
@@ -1196,14 +1207,7 @@ pub mod pallet {
 				}
 			}
 			log::debug!(target: LOG_TARGET, "🎯 No swap quantity for target price {:?}?", target);
-			if pool_price < target {
-				if_std! {
-				println!("Pool Price after swap quantity of {:?} => {:?}", mid, pool_price);
-				}
-				Ok(Some(mid))
-			} else {
-				Ok(None)
-			}
+			Ok(None)
 		}
 
 		/// Swap exactly `amount_in` of asset `path[0]` for asset `path[1]`.
