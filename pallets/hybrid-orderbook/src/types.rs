@@ -161,36 +161,6 @@ pub trait OrderbookOrderId:
 	fn is_bid(&self) -> bool;
 }
 
-#[derive(Decode, Encode, Debug, Clone, Default, PartialEq, Eq, MaxEncodedLen, TypeInfo)]
-pub enum CancelOrderType<Quantity> {
-	#[default]
-	All,
-	Partial(Quantity),
-}
-
-impl<Quantity> CancelOrderType<Quantity> {
-	fn is_partial(&self) -> Option<Quantity> {
-		match self {
-			CancelOrderType::All => None,
-			CancelOrderType::Partial(q) => Some(q),
-		}
-	}
-}
-
-/// Record for order
-#[derive(Decode, Encode, Default, PartialEq, Eq, MaxEncodedLen, TypeInfo)]
-pub struct OrderRecord<Unit> {
-	order_id: OrderId,
-	price: Unit,
-	quantity: Unit,
-}
-
-impl<Id, Unit> OrderRecord<Id, Unit> {
-	pub fn new(order_id: OrderId, price: Unit, quantity: Unit) -> Self {
-		Self { order_id, price, quantity }
-	}
-}
-
 /// Represents a swap path with associated asset amounts indicating how much of the asset needs to
 /// be deposited to get the following asset's amount withdrawn (this is inclusive of fees).
 ///
@@ -248,7 +218,7 @@ impl<Quantity, Account, BlockNumber> Order<Quantity, Account, BlockNumber> {
 }
 
 /// Detail of the pool
-#[derive(Encode, Decode, Default, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, Default, Debug, Clone, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct Pool<T: Config> {
 	/// Liquidity pool asset
@@ -367,19 +337,12 @@ impl<T: Config> Pool<T> {
 	/// Cancel order of `owner`
 	pub fn cancel_order(
 		&mut self,
-		cancel_order_type: CancelOrderType<T::Unit>,
 		maybe_owner: &T::AccountId,
 		pool_id: &T::PoolId,
+		price: T::Unit,
+		order_id: OrderId,
+		quantity: T::Unit,
 	) -> Result<OrderId, Error<T>> {
-		let OrderRecord { order_id, price, quantity } =
-			OrderRecords::<T>::get(maybe_owner, pool_id).ok_or(Error::<T>::OrderNotFound)?;
-		let mut cancel_quantity = match cancel_order_type {
-			CancelOrderType::All => quantity,
-			CancelOrderType::Partial(order_quantity) => {
-				ensure!(order_quantity <= quantity, Error::<T>::OverOrderQuantity);
-				order_quantity
-			},
-		};
 		if order_id.is_bid() {
 			self.bids
 				.cancel_order(maybe_owner, price, order_id, quantity)
@@ -591,7 +554,7 @@ pub mod traits {
 			maybe_owner: &Account,
 			key: Unit,
 			order_id: Self::OrderId,
-			quantity: T::Unit,
+			quantity: Unit,
 		) -> Result<(), Self::Error>;
 	}
 

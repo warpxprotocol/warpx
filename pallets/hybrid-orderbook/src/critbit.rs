@@ -293,7 +293,7 @@ where
 				.ok_or(CritbitTreeError::InternalNodeShouldExist)?
 				.parent;
 		}
-		// This means previous leaf doesn't exist
+		// This means next leaf doesn't exist
 		if parent_node_index == K::PARTITION_INDEX {
 			return Ok(None)
 		}

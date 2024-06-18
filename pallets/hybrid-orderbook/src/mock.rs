@@ -18,7 +18,7 @@
 //! Test environment for Asset Conversion pallet.
 
 use super::*;
-use crate as pallet_asset_conversion;
+use crate as pallet_hybrid_orderbook;
 use core::default::Default;
 use frame_support::{
 	construct_runtime, derive_impl,
@@ -52,7 +52,7 @@ construct_runtime!(
 		Balances: pallet_balances,
 		Assets: pallet_assets::<Instance1>,
 		PoolAssets: pallet_assets::<Instance2>,
-		AssetConversion: pallet_asset_conversion,
+		HybridOrderbook: pallet_hybrid_orderbook,
 	}
 );
 
@@ -112,7 +112,7 @@ impl pallet_assets::Config<Instance2> for Test {
 	type AssetIdParameter = u32;
 	type Currency = Balances;
 	type CreateOrigin =
-		AsEnsureOriginWithArg<EnsureSignedBy<AssetConversionOrigin, Self::AccountId>>;
+		AsEnsureOriginWithArg<EnsureSignedBy<HybridOrderbookOrigin, Self::AccountId>>;
 	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
 	type AssetDeposit = ConstU64<0>;
 	type AssetAccountDeposit = ConstU64<0>;
@@ -130,21 +130,18 @@ impl pallet_assets::Config<Instance2> for Test {
 }
 
 parameter_types! {
-	pub const AssetConversionPalletId: PalletId = PalletId(*b"py/ascon");
+	pub const HybridOrderbookPalletId: PalletId = PalletId(*b"py/hybob");
 	pub const Native: NativeOrWithId<u32> = NativeOrWithId::Native;
 	pub storage LiquidityWithdrawalFee: Permill = Permill::from_percent(0);
 }
 
 ord_parameter_types! {
-	pub const AssetConversionOrigin: u128 = AccountIdConversion::<u128>::into_account_truncating(&AssetConversionPalletId::get());
+	pub const HybridOrderbookOrigin: u128 = AccountIdConversion::<u128>::into_account_truncating(&HybridOrderbookPalletId::get());
 }
 
 pub type NativeAndAssets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, u128>;
 pub type PoolIdToAccountId =
-	AccountIdConverter<AssetConversionPalletId, (NativeOrWithId<u32>, NativeOrWithId<u32>)>;
-pub type AscendingLocator = Ascending<u128, NativeOrWithId<u32>>;
-pub type WithFirstAssetLocator =
-	WithFirstAsset<Native, u128, NativeOrWithId<u32>>;
+	AccountIdConverter<HybridOrderbookPalletId, (NativeOrWithId<u32>, NativeOrWithId<u32>)>;
 pub type OrderbookLocator = BaseQuoteAsset<AccountId, NativeOrWithId<u32>>;
 
 parameter_types! {
@@ -165,8 +162,8 @@ impl Config for Test {
 	type PoolAssets = PoolAssets;
 	type PoolSetupFee = ConstU64<100>; // should be more or equal to the existential deposit
 	type PoolSetupFeeAsset = Native;
-	type PoolSetupFeeTarget = ResolveAssetTo<AssetConversionOrigin, Self::Assets>;
-	type PalletId = AssetConversionPalletId;
+	type PoolSetupFeeTarget = ResolveAssetTo<HybridOrderbookOrigin, Self::Assets>;
+	type PalletId = HybridOrderbookPalletId;
 	type WeightInfo = ();
 	type LPFee = ConstU32<3>; // means 0.3%
 	type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
