@@ -189,7 +189,7 @@ pub struct Tick<Quantity, Account, BlockNumber> {
 	open_orders: BTreeMap<OrderId, Order<Quantity, Account, BlockNumber>>,
 }
 
-impl<Quantity, Account, BlockNumber> Tick<Quantity, Account, BlockNumber> {
+impl<Quantity, Account: Clone, BlockNumber> Tick<Quantity, Account, BlockNumber> {
 	/// Create new instance of `Tick`
 	pub fn new(
 		order_id: OrderId,
@@ -211,9 +211,13 @@ pub struct Order<Quantity, Account, BlockNumber> {
 	expired_at: BlockNumber,
 }
 
-impl<Quantity, Account, BlockNumber> Order<Quantity, Account, BlockNumber> {
+impl<Quantity, Account: Clone, BlockNumber> Order<Quantity, Account, BlockNumber> {
 	pub fn new(owner: Account, quantity: Quantity, expired_at: BlockNumber) -> Self {
 		Self { quantity, owner, expired_at }
+	}
+
+	pub fn owner(&self) -> Account {
+		self.owner.clone()
 	}
 }
 
@@ -324,7 +328,7 @@ impl<T: Config> Pool<T> {
 		is_bid: bool,
 		price: T::Unit,
 		quantity: T::Unit,
-	) -> Result<Option<T::Unit>, Error<T>> {
+	) -> Result<Option<Vec<(T::AccountId, T::Unit)>>, Error<T>> {
 		let res = if is_bid {
 			self.asks.fill_order(price, quantity)
 		} else {
@@ -528,13 +532,6 @@ pub mod traits {
 		/// Return `None`, if the orderbook is empty
 		fn max_order(&self) -> Option<(Unit, Unit)>;
 
-		/// Find an order
-		fn find_order(
-			&self,
-			key: Unit,
-			order_id: Self::OrderId,
-		) -> Result<Option<Self::Order>, Self::Error>;
-
 		/// Place a new order only used for limit order
 		fn place_order(
 			&mut self,
@@ -545,8 +542,13 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Result<(), Self::Error>;
 
-		/// Fill order on orderbook used for order matching
-		fn fill_order(&mut self, key: Unit, quantity: Unit) -> Result<Option<Unit>, Self::Error>;
+		/// Fill order on orderbook used for order matching. Return (Account, Unit) which means
+		/// orderer and the amount of filled orders
+		fn fill_order(
+			&mut self,
+			key: Unit,
+			quantity: Unit,
+		) -> Result<Option<Vec<(Account, Unit)>>, Self::Error>;
 
 		/// Cancel the order
 		fn cancel_order(
@@ -625,7 +627,7 @@ pub mod traits {
 		);
 
 		/// Fill the order with the given `quantity`
-		fn filled(&mut self, quantity: Unit) -> Option<Unit>;
+		fn filled(&mut self, quantity: Unit) -> Option<Vec<(Account, Unit)>>;
 
 		/// Add the quantity to the order of the given order id
 		fn added(
@@ -690,10 +692,14 @@ pub mod traits {
 				.insert(order_id, Order::new(owner.clone(), quantity, expired_at));
 		}
 
-		fn filled(&mut self, quantity: Unit) -> Option<Unit> {
+		fn filled(&mut self, quantity: Unit) -> Option<Vec<(Account, Unit)>> {
 			let mut filled = Zero::zero();
 			let mut to_remove = Vec::new();
+			let mut res: Vec<(Account, Unit)> = Vec::new();
 			for (id, order) in self.open_orders.iter_mut() {
+				if_std! {
+				println!("👀 OrderId => {:?} is currently filled.", id);
+					}
 				// All orders are filled
 				let remain = quantity - filled;
 				if remain == Zero::zero() {
@@ -701,23 +707,25 @@ pub mod traits {
 				}
 				if order.quantity >= remain {
 					order.quantity -= remain;
-					filled = remain;
+					filled += remain;
+					res.push((order.owner(), remain));
 				} else {
 					filled += order.quantity;
 					// Order of `id` is fully filled and should be removed
 					to_remove.push(*id);
+					res.push((order.owner(), order.quantity));
 				}
 			}
 			// Remove the fully filled orders
 			for id in to_remove {
 				self.open_orders.remove(&id);
 			}
-			// If all orders are fully filled, call `done_fill()` and return `None`
-			// Otherwise, return the remaining orders
+
 			if filled == Zero::zero() {
-				return None
+				None
+			} else {
+				Some(res)
 			}
-			Some(filled)
 		}
 
 		fn added(

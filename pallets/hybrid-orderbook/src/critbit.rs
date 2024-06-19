@@ -570,22 +570,6 @@ where
 		}
 	}
 
-	fn find_order(
-		&self,
-		key: Unit,
-		order_id: Self::OrderId,
-	) -> Result<Option<Self::Order>, Self::Error> {
-		if let Some(leaf_index) = self.find_leaf(&key)? {
-			// Empty tree
-			if leaf_index == Unit::PARTITION_INDEX {
-				return Ok(None);
-			}
-			Ok(None)
-		} else {
-			Ok(None)
-		}
-	}
-
 	fn place_order(
 		&mut self,
 		order_id: Self::OrderId,
@@ -610,31 +594,27 @@ where
 		}
 	}
 
-	fn fill_order(&mut self, key: Unit, quantity: Unit) -> Result<Option<Unit>, Self::Error> {
-		if let Some(leaf_index) = self.find_leaf(&key)? {
-			if leaf_index == Unit::PARTITION_INDEX {
-				// Since tree is empty, we don't do anything
-				return Ok(Some(quantity))
-			}
+	fn fill_order(
+		&mut self,
+		key: Unit,
+		quantity: Unit,
+	) -> Result<Option<Vec<(Account, Unit)>>, Self::Error> {
+		let maybe_filled = if let Some(leaf_index) = self.find_leaf(&key)? {
 			if let Some(leaf) = self.leaves.get_mut(&leaf_index) {
-				if let Some(remain) = leaf.value.filled(quantity) {
-					return Ok(Some(remain))
-				} else {
-					// Order has been fully filled
-					if leaf.value.is_empty() {
-						// There is no value left for this leaf so `leaf_index` should be removed
-						self.remove_leaf_by_index(&leaf_index)?;
-					}
-					return Ok(None)
+				let filled = leaf.value.filled(quantity);
+				if leaf.value.is_empty() {
+					self.remove_leaf_by_index(&leaf_index)?;
 				}
+				filled
 			} else {
-				// no leaf?
-				return Ok(Some(quantity))
+				None
 			}
 		} else {
-			// If there is no leaf for the given price(key), we don't do anything
-			return Ok(Some(quantity))
-		}
+			// If there is no leaf for the given price(key), orders will not be filled
+			None
+		};
+
+		Ok(maybe_filled)
 	}
 
 	fn cancel_order(

@@ -95,6 +95,73 @@ fn get_native_ed() -> MockBalance {
 	<<Test as Config>::Assets>::minimum_balance(NativeOrWithId::Native)
 }
 
+fn pool_with_default_liquidity(
+	provider: MockAccountId,
+	base: &NativeOrWithId<u32>,
+	quote: &NativeOrWithId<u32>,
+	order_quantity: u64,
+	base_provided: MockBalance,
+	quote_provided: MockBalance,
+	tick_size: u64,
+	lot_size: u64,
+) {
+	create_tokens(provider, vec![base.clone(), quote.clone()]);
+	assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), provider, 1000));
+	assert_ok!(HybridOrderbook::create_pool(
+		RuntimeOrigin::signed(provider),
+		Box::new(base.clone()),
+		Box::new(quote.clone()),
+		Permill::zero(),
+		tick_size,
+		lot_size
+	));
+	let ed = get_native_ed();
+	assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), provider, 10000 * 2 + ed));
+	assert_ok!(Assets::mint(RuntimeOrigin::signed(provider), 1, provider, base_provided * 10));
+	assert_ok!(Assets::mint(RuntimeOrigin::signed(provider), 2, provider, quote_provided * 2));
+	assert_ok!(HybridOrderbook::add_liquidity(
+		RuntimeOrigin::signed(provider),
+		Box::new(base.clone()),
+		Box::new(quote.clone()),
+		base_provided,
+		quote_provided,
+		base_provided,
+		quote_provided,
+		provider,
+	));
+
+	let pool_price = HybridOrderbook::pool_price(base, quote).unwrap();
+	let mut order_price = pool_price - tick_size;
+	// bid
+	while order_price > 0 {
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(provider),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			true,
+			order_price,
+			order_quantity,
+		));
+		order_price -= tick_size;
+	}
+
+	// ask
+	let mut order_price = pool_price + tick_size;
+	let max_ask = pool_price * 2;
+	while order_price <= max_ask {
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(provider),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			false,
+			order_price,
+			order_quantity,
+		));
+
+		order_price += tick_size;
+	}
+}
+
 macro_rules! bvec {
 	($($x:expr),+ $(,)?) => (
 		vec![$( Box::new( $x ), )*]
@@ -259,11 +326,11 @@ fn limit_order_works() {
 			lot_size
 		));
 		let ed = get_native_ed();
-		let base_provided = 100;
-		let quote_provided = 10000;
+		let base_provided = 10000;
+		let quote_provided = 10000000;
 		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), user, 10000 * 2 + ed));
-		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 1, user, base_provided * 10));
-		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 2, user, quote_provided * 2));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 1, user, base_provided * 10000));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 2, user, quote_provided * 100));
 		// Liquidity should be added first
 		assert_noop!(
 			HybridOrderbook::limit_order(
@@ -324,7 +391,7 @@ fn limit_order_works() {
 		}
 		// ask
 		let mut order_price = pool_price + tick_size;
-		let order_quantity = 100;
+		let order_quantity = 50;
 		let max_ask = pool_price * 2;
 		while order_price <= max_ask {
 			assert_ok!(HybridOrderbook::limit_order(
@@ -344,19 +411,81 @@ fn limit_order_works() {
 			}));
 			order_price += tick_size;
 		}
-		let pool = Pools::<Test>::get(&pool_id).unwrap();
-		assert!(!pool.bids.is_empty());
-		assert!(pool.bids.size() == 19);
-		assert!(pool.asks.size() == 20);
-
 		assert_ok!(HybridOrderbook::market_order(
 			RuntimeOrigin::signed(user),
 			Box::new(base.clone()),
 			Box::new(quote.clone()),
-			50,
-			is_bid,
+			150,
+			true,
+		));
+		let balance1 = Assets::balance(1, &user);
+		let balance2 = Assets::balance(2, &user);
+		println!("Balance 1 => {:?}, Balance 2 => {:?}", balance1, balance2);
+	})
+}
+
+#[test]
+fn market_order_works() {
+	new_test_ext().execute_with(|| {
+		let initial_provider: MockAccountId = 1;
+		let base = NativeOrWithId::WithId(1);
+		let quote = NativeOrWithId::WithId(2);
+		let pool_id = (base.clone(), quote.clone());
+		let order_quantity = 50;
+		let base_provided = 1000;
+		let quote_provided = 100000;
+		let tick_size = 1;
+		let lot_size = 1;
+		pool_with_default_liquidity(
+			initial_provider,
+			&base,
+			&quote,
+			order_quantity,
+			base_provided,
+			quote_provided,
+			tick_size,
+			lot_size,
+		);
+		let pool = Pools::<Test>::get(&pool_id).unwrap();
+		assert!(pool.asks.size() == 100);
+		assert!(pool.bids.size() == 99);
+		let user2: MockAccountId = 2;
+		let user3: MockAccountId = 3;
+		let user4: MockAccountId = 4;
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(user2),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			false,
+			101,
+			100
+		));
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(user3),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			false,
+			101,
+			200
+		));
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(user4),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			false,
+			101,
+			300
 		));
 		let pool = Pools::<Test>::get(&pool_id).unwrap();
-		println!("{:?}", pool.asks);
+		println!("Before => {:?}", pool.asks);
+		assert_ok!(HybridOrderbook::market_order(
+			RuntimeOrigin::signed(initial_provider),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			450,
+			true,
+		));
+		let pool = Pools::<Test>::get(&pool_id).unwrap();
+		println!("After => {:?}", pool.asks);
 	})
 }
