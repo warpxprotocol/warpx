@@ -33,13 +33,13 @@ pub type AssetBalanceOf<T> =
 impl<T: Config, AssetId, AccountId, Balance> FrozenBalance<AssetId, AccountId, Balance>
 	for Pallet<T>
 where
-	AssetId: Into<AssetIdOf<T>>,
+	AssetId: Into<T::AssetKind>,
 	AccountId: Into<T::AccountId> + Clone,
 	Balance: From<T::Unit>,
 {
 	fn frozen_balance(asset: AssetId, who: &AccountId) -> Option<Balance> {
 		let _who: T::AccountId = who.clone().into();
-		let _asset: AssetIdOf<T> = asset.into();
+		let _asset: T::AssetKind = asset.into();
 		if let Some(frozen) = FrozenAssets::<T>::get(_who, _asset) {
 			return Some(frozen.into())
 		}

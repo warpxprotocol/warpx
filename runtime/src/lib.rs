@@ -13,30 +13,33 @@ pub use constants::{currency::*, time::*};
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256};
+#[cfg(any(feature = "std", test))]
+pub use sp_runtime::BuildStorage;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify, AccountIdConversion},
+	traits::{
+		AccountIdConversion, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify,
+	},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
+pub use sp_runtime::{Perbill, Permill};
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
-#[cfg(any(feature = "std", test))]
-pub use sp_runtime::BuildStorage;
-pub use sp_runtime::{Perbill, Permill};
 
 // System
-use frame_system::{EnsureRoot, EnsureSignedBy, EnsureSigned};
 pub use frame_support::{
-	construct_runtime, derive_impl, parameter_types, ord_parameter_types,
+	construct_runtime, derive_impl,
 	genesis_builder_helper::{build_config, create_default_config},
+	instances::{Instance1, Instance2},
+	ord_parameter_types, parameter_types,
 	traits::{
-		ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness,
-		StorageInfo, AsEnsureOriginWithArg, 
-		fungible::{NativeOrWithId, NativeFromLeft, UnionOf},
-		tokens::imbalance::ResolveAssetTo
+		fungible::{NativeFromLeft, NativeOrWithId, UnionOf},
+		tokens::imbalance::ResolveAssetTo,
+		AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8,
+		KeyOwnerProofSystem, Randomness, StorageInfo,
 	},
 	weights::{
 		constants::{
@@ -44,17 +47,19 @@ pub use frame_support::{
 		},
 		IdentityFee, Weight,
 	},
-	instances::{Instance1, Instance2},
-	StorageValue, PalletId
+	PalletId, StorageValue,
 };
 pub use frame_system::Call as SystemCall;
+use frame_system::{EnsureRoot, EnsureSigned, EnsureSignedBy};
 
 // FRAMES
 pub use pallet_balances::Call as BalancesCall;
+use pallet_grandpa::AuthorityId as GrandpaId;
+use pallet_hybrid_orderbook::{
+	Ascending, BaseQuoteAsset, Chain, CritbitTree, Pool, Tick, WithFirstAsset,
+};
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
-use pallet_grandpa::AuthorityId as GrandpaId;
-use pallet_hybrid_orderbook::{Pool, CritbitTree, Tick, WithFirstAsset, Ascending, Chain, BaseQuoteAsset};
 
 pub use primitives::*;
 pub mod primitives {
@@ -88,8 +93,8 @@ pub mod primitives {
 	/// Index of each order in the orderbook which is used as the key in the orderbook.
 	pub type OrderBookIndex = u64;
 
-	/// Identifier of each pool 
-	pub type PoolId = u64; 
+	/// Identifier of each pool
+	pub type PoolId = u64;
 }
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -268,7 +273,7 @@ impl pallet_assets::Config<Instance1> for Runtime {
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = ApprovalDeposit;
 	type StringLimit = StringLimit;
-	type Freezer = ();
+	type Freezer = HybridOrderbook;
 	type Extra = ();
 	type CallbackHandle = ();
 	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;

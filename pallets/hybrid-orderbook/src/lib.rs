@@ -232,7 +232,7 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		Twox64Concat,
-		AssetIdOf<T>,
+		T::AssetKind,
 		T::Unit,
 		OptionQuery,
 	>;
@@ -874,6 +874,56 @@ pub mod pallet {
 			Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound.into())
 		}
 
+		fn set_freeze_asset(
+			who: &T::AccountId,
+			asset: &T::AssetKind,
+			amount: T::Unit,
+		) -> DispatchResult {
+			FrozenAssets::<T>::try_mutate(who, asset, |maybe_balance| -> DispatchResult {
+				let mut new = maybe_balance.take().map_or(Default::default(), |b| b);
+				new = new.checked_add(&amount).ok_or(Error::<T>::Overflow)?;
+				*maybe_balance = Some(new);
+				Ok(())
+			})
+		}
+
+		fn handle_filled_orders(
+			is_bid: bool,
+			base_asset: T::AssetKind,
+			quote_asset: T::AssetKind,
+			orderer: &T::AccountId,
+			filled_orders: Vec<(T::AccountId, T::Unit, T::Unit)>,
+		) -> DispatchResult {
+			// If it is matched with bid order, `base_asset` should be released.
+			// While it is ask order, `quote_asset` should be released.
+			// Here, `asset1` means asset that is released from frozen
+			let (asset1, asset2) =
+				if is_bid { (base_asset, quote_asset) } else { (quote_asset, base_asset) };
+			for (owner, p, q) in filled_orders {
+				// Release amount would be different based on `is_bid`. If it is bid order, `q`
+				// amount of base asset would be released. While if it is ask order, `p*q` amount of
+				// quote asset would be released.
+				let released = if is_bid { q } else { p * q };
+				// 1. Release the frozen asset
+				FrozenAssets::<T>::try_mutate(
+					&owner,
+					asset1.clone(),
+					|maybe_balance| -> DispatchResult {
+						let mut new = maybe_balance.take().ok_or(Error::<T>::NoOps)?;
+						new = new.saturating_sub(released);
+						*maybe_balance = Some(new);
+						Ok(())
+					},
+				)?;
+				// 2. Transfer assets between orderer and owner of limit order
+				let (transfer1, transfer2) = if is_bid { (q, released) } else { (released, q) };
+				T::Assets::transfer(asset1.clone(), &owner, orderer, transfer1, Preserve)?;
+				T::Assets::transfer(asset2.clone(), orderer, &owner, transfer2, Preserve)?;
+			}
+
+			Ok(())
+		}
+
 		/// `Quantity` of `Market` orders filled from _Pool_
 		pub(crate) fn do_market_order(
 			is_bid: bool,
@@ -975,23 +1025,11 @@ pub mod pallet {
 			quantity: T::Unit,
 		) -> DispatchResult {
 			if is_bid {
-				// Transfer `quote_asset` to pallet_id account
-				T::Assets::transfer(
-					quote_asset.clone(),
-					maker,
-					&Self::account_id(),
-					quantity,
-					Preserve,
-				)?;
+				// Freeze the `price*quantity* amount of `quote_asset`
+				Self::set_freeze_asset(maker, quote_asset, price * quantity)?;
 			} else {
-				// Transfer `base_asset` to pallet_id account
-				T::Assets::transfer(
-					base_asset.clone(),
-					maker,
-					&Self::account_id(),
-					quantity,
-					Preserve,
-				)?;
+				// Freeze the `quantity` amount of `base_asset`
+				Self::set_freeze_asset(maker, base_asset, quantity)?;
 			}
 			let (price, order_id) = pool
 				.place_order(is_bid, maker, price, quantity)
@@ -1047,7 +1085,8 @@ pub mod pallet {
 			order_quantity: T::Unit,
 		) -> Result<(), DispatchError> {
 			let mut remain_orders = order_quantity;
-			let mut filled_orders: Vec<(T::AccountId, T::Unit)> = Vec::new();
+			// (Account, Price, Quantity)
+			let mut filled_orders: Vec<(T::AccountId, T::Unit, T::Unit)> = Default::default();
 			// Match orders from pool and orderbook until all orders are filled.
 			// Loop could be breaked if there is no orders on OrderBook.
 			// Then orders will be filled from pool only.
@@ -1129,7 +1168,13 @@ pub mod pallet {
 			if_std! {
 			 println!("Final Pool Price after matching => {:?}, filled_orders => {:?}", Self::pool_price(base_asset, quote_asset).unwrap(), filled_orders);
 			}
-
+			Self::handle_filled_orders(
+				is_bid,
+				base_asset.clone(),
+				quote_asset.clone(),
+				orderer,
+				filled_orders,
+			)?;
 			Self::deposit_event(Event::<T>::OrderMatched {
 				orderer: orderer.clone(),
 				filled: order_quantity,
@@ -1173,7 +1218,7 @@ pub mod pallet {
 			pool: &mut Pool<T>,
 			price: T::Unit,
 			order_quantity: &mut T::Unit,
-			filled_orders: &mut Vec<(T::AccountId, T::Unit)>,
+			filled_orders: &mut Vec<(T::AccountId, T::Unit, T::Unit)>,
 		) -> Result<(), Error<T>> {
 			let q = order_quantity.clone();
 			let filled = pool
@@ -1182,7 +1227,7 @@ pub mod pallet {
 				.map_or(Zero::zero(), |filled| {
 					filled.iter().fold(Zero::zero(), |acc, order| {
 						let filled_order = order.clone();
-						filled_orders.push((filled_order.0, filled_order.1));
+						filled_orders.push((filled_order.0, price, filled_order.1));
 						acc + order.1
 					})
 				});
