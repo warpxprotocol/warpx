@@ -25,6 +25,30 @@ use sp_std::vec::Vec;
 
 pub use traits::{OrderBook, OrderBookIndex};
 
+pub type AssetIdOf<T> =
+	<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
+pub type AssetBalanceOf<T> =
+	<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
+
+impl<T: Config, AssetId, AccountId, Balance> FrozenBalance<AssetId, AccountId, Balance>
+	for Pallet<T>
+where
+	AssetId: Into<AssetIdOf<T>>,
+	AccountId: Into<T::AccountId> + Clone,
+	Balance: From<T::Unit>,
+{
+	fn frozen_balance(asset: AssetId, who: &AccountId) -> Option<Balance> {
+		let _who: T::AccountId = who.clone().into();
+		let _asset: AssetIdOf<T> = asset.into();
+		if let Some(frozen) = FrozenAssets::<T>::get(_who, _asset) {
+			return Some(frozen.into())
+		}
+		None
+	}
+
+	fn died(_asset: AssetId, _who: &AccountId) {}
+}
+
 /// Order id of _hybrid orderbook_ which wrapped `u64`
 #[derive(
 	Decode,

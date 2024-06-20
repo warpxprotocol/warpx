@@ -95,7 +95,7 @@ impl pallet_assets::Config<Instance1> for Test {
 	type MetadataDepositPerByte = ConstU64<1>;
 	type ApprovalDeposit = ConstU64<1>;
 	type StringLimit = ConstU32<50>;
-	type Freezer = ();
+	type Freezer = HybridOrderbook;
 	type Extra = ();
 	type WeightInfo = ();
 	type CallbackHandle = ();
@@ -139,7 +139,8 @@ ord_parameter_types! {
 	pub const HybridOrderbookOrigin: u128 = AccountIdConversion::<u128>::into_account_truncating(&HybridOrderbookPalletId::get());
 }
 
-pub type NativeAndAssets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, u128>;
+pub type NativeAndAssets =
+	UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
 pub type PoolIdToAccountId =
 	AccountIdConverter<HybridOrderbookPalletId, (NativeOrWithId<u32>, NativeOrWithId<u32>)>;
 pub type OrderbookLocator = BaseQuoteAsset<AccountId, NativeOrWithId<u32>>;

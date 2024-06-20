@@ -88,6 +88,7 @@ use frame_support::{
 	},
 	PalletId,
 };
+pub use pallet_assets::FrozenBalance;
 use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{
@@ -127,7 +128,7 @@ pub mod pallet {
 
 		/// The type which is used as `key` in `T::OrderBook`, `amount of Reserve`, `quantity of
 		/// order`, etc..
-		type Unit: Balance + OrderBookIndex;
+		type Unit: Balance + OrderBookIndex + From<AssetBalanceOf<Self>>;
 
 		/// A type used for calculations concerning the `Unit` type to avoid possible overflows.
 		type HigherPrecisionUnit: IntegerSquareRoot
@@ -223,6 +224,18 @@ pub mod pallet {
 	/// This gets incremented whenever a new lp pool is created.
 	#[pallet::storage]
 	pub type NextPoolAssetId<T: Config> = StorageValue<_, T::PoolAssetId, OptionQuery>;
+
+	/// Stores the `Hold` assets for limit order
+	#[pallet::storage]
+	pub type FrozenAssets<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		T::AccountId,
+		Twox64Concat,
+		AssetIdOf<T>,
+		T::Unit,
+		OptionQuery,
+	>;
 
 	// Pallet's events.
 	#[pallet::event]

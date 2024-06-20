@@ -1,5 +1,5 @@
 [workspace.package]
-authors = ["Team "]
+authors = ["HybriDex"]
 edition = "2021"
 repository = "https://github.com/Hanaverse/hanaverse"
 license = "MIT-0"
@@ -8,11 +8,7 @@ homepage = "https://github.com/Hanaverse"
 [workspace]
 resolver = "2"
 
-members = [
-    "node",
-    "pallets/hybrid-orderbook",
-    "runtime",
-]
+members = ["node", "pallets/hybrid-orderbook", "runtime"]
 [profile.release]
 panic = "unwind"
 
@@ -51,7 +47,6 @@ node-primitives = { version = "28.0.0", default-features = false, git = "https:/
 # FRAMES
 pallet-aura = { version = "27.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-assets = { version = "29.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
-pallet-asset-conversion = { version = "10.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-balances = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-example-tasks = { version = "1.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
 pallet-grandpa = { version = "28.0.0", default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-v1.10.0" }
