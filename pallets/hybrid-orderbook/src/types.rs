@@ -338,13 +338,11 @@ impl<T: Config> Pool<T> {
 			self.bids
 				.place_order(order_id, &owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?;
-			self.next_bid_order_id += 1;
 		} else {
 			order_id = self.next_ask_order_id()?;
 			self.asks
 				.place_order(order_id, &owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?;
-			self.next_ask_order_id += 1;
 		};
 
 		Ok((price, order_id))
