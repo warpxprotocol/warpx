@@ -64,7 +64,7 @@ where
 	MaxEncodedLen,
 	TypeInfo,
 )]
-pub struct OrderId(u64);
+pub struct OrderId(pub u64);
 
 #[derive(Debug)]
 pub enum OrderIdError {
@@ -279,20 +279,24 @@ impl<T: Config> Pool<T> {
 			lp_token,
 			bids: T::OrderBook::new(),
 			asks: T::OrderBook::new(),
-			next_bid_order_id: 0.into(),
-			next_ask_order_id: 0.into(),
+			next_bid_order_id: OrderId::new(true, 0),
+			next_ask_order_id: OrderId::new(false, 1),
 			taker_fee_rate,
 			tick_size,
 			lot_size,
 		}
 	}
 
-	pub fn next_bid_order_id(&self) -> OrderId {
-		self.next_bid_order_id.clone()
+	pub fn next_bid_order_id(&mut self) -> Result<OrderId, Error<T>> {
+		let next = self.next_ask_order_id.clone();
+		self.next_ask_order_id = next.checked_increase(true).ok_or(Error::<T>::Overflow)?;
+		Ok(next)
 	}
 
-	pub fn next_ask_order_id(&self) -> OrderId {
-		self.next_ask_order_id.clone()
+	pub fn next_ask_order_id(&mut self) -> Result<OrderId, Error<T>> {
+		let next = self.next_ask_order_id.clone();
+		self.next_ask_order_id = next.checked_increase(false).ok_or(Error::<T>::Overflow)?;
+		Ok(next)
 	}
 
 	/// Get the clone of the bid orders from orderbook
@@ -330,13 +334,13 @@ impl<T: Config> Pool<T> {
 		let expired_at = current + T::OrderExpiration::get();
 		let order_id: OrderId;
 		if is_bid {
-			order_id = self.next_bid_order_id();
+			order_id = self.next_bid_order_id()?;
 			self.bids
 				.place_order(order_id, &owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?;
 			self.next_bid_order_id += 1;
 		} else {
-			order_id = self.next_ask_order_id();
+			order_id = self.next_ask_order_id()?;
 			self.asks
 				.place_order(order_id, &owner, price, quantity, expired_at)
 				.map_err(|_| Error::<T>::ErrorOnPlaceOrder)?;
@@ -366,7 +370,6 @@ impl<T: Config> Pool<T> {
 	pub fn cancel_order(
 		&mut self,
 		maybe_owner: &T::AccountId,
-		pool_id: &T::PoolId,
 		price: T::Unit,
 		order_id: OrderId,
 		quantity: T::Unit,
@@ -548,6 +551,8 @@ pub mod traits {
 		/// Check if the orderbook is empty
 		fn is_empty(&self) -> bool;
 
+		fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error>;
+
 		/// Optionally return the minimum order of the orderbook which is (price, index).
 		/// Return `None`, if the orderbook is empty
 		fn min_order(&self) -> Option<(Unit, Unit)>;
@@ -638,6 +643,8 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self;
 
+		fn orders(&self) -> Self;
+
 		/// Return `true` if there are no open orders
 		fn is_empty(&self) -> bool;
 
@@ -688,6 +695,7 @@ pub mod traits {
 	where
 		Account: PartialEq + Clone,
 		Unit: AtLeast32BitUnsigned + Copy,
+		BlockNumber: Clone,
 	{
 		type OrderId = OrderId;
 		type Error = OrderError;
@@ -699,6 +707,10 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self {
 			Self::new(order_id, owner, quantity, expired_at)
+		}
+
+		fn orders(&self) -> Self {
+			self.clone()
 		}
 
 		fn is_empty(&self) -> bool {

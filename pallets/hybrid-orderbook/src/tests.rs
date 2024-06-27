@@ -309,6 +309,7 @@ fn add_liquidity_works() {
 fn limit_order_works() {
 	new_test_ext().execute_with(|| {
 		let user: MockAccountId = 1;
+		let user2: MockAccountId = 2;
 		let base = NativeOrWithId::WithId(1);
 		let quote = NativeOrWithId::WithId(2);
 		let pool_id = (base.clone(), quote.clone());
@@ -331,6 +332,8 @@ fn limit_order_works() {
 		assert_ok!(Balances::force_set_balance(RuntimeOrigin::root(), user, 10000 * 2 + ed));
 		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 1, user, base_provided * 10000));
 		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 2, user, quote_provided * 100));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(user), 2, user2, 2000000));
+		println!("{:?}", Assets::balance(2, &user2));
 		// Liquidity should be added first
 		assert_noop!(
 			HybridOrderbook::limit_order(
@@ -411,8 +414,9 @@ fn limit_order_works() {
 			}));
 			order_price += tick_size;
 		}
+
 		assert_ok!(HybridOrderbook::market_order(
-			RuntimeOrigin::signed(user),
+			RuntimeOrigin::signed(user2),
 			Box::new(base.clone()),
 			Box::new(quote.clone()),
 			150,
@@ -420,7 +424,10 @@ fn limit_order_works() {
 		));
 		let balance1 = Assets::balance(1, &user);
 		let balance2 = Assets::balance(2, &user);
+		let user2_balance1 = Assets::balance(1, &user2);
 		println!("Balance 1 => {:?}, Balance 2 => {:?}", balance1, balance2);
+		// No fees for buying yet
+		assert_eq!(user2_balance1, 150);
 	})
 }
 
@@ -487,5 +494,48 @@ fn market_order_works() {
 		));
 		let pool = Pools::<Test>::get(&pool_id).unwrap();
 		println!("After => {:?}", pool.asks);
+	})
+}
+
+#[test]
+fn cancel_order_works() {
+	new_test_ext().execute_with(|| {
+		let initial_provider: MockAccountId = 1;
+		let base = NativeOrWithId::WithId(1);
+		let quote = NativeOrWithId::WithId(2);
+		let pool_id = (base.clone(), quote.clone());
+		let order_quantity = 50;
+		// Default pool price => 100
+		let base_provided = 1000;
+		let quote_provided = 100000;
+		let tick_size = 1;
+		let lot_size = 1;
+		pool_with_default_liquidity(
+			initial_provider,
+			&base,
+			&quote,
+			order_quantity,
+			base_provided,
+			quote_provided,
+			tick_size,
+			lot_size,
+		);
+		assert_ok!(HybridOrderbook::limit_order(
+			RuntimeOrigin::signed(2),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			false,
+			100 + tick_size,
+			10
+		));
+		assert_ok!(HybridOrderbook::cancel_order(
+			RuntimeOrigin::signed(2),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			101,
+			OrderId(100),
+			5
+		));
+		println!("{:?}", Pools::<Test>::get(&pool_id).unwrap().asks.open_orders_at(101).unwrap());
 	})
 }

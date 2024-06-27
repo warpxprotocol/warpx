@@ -1,3 +1,5 @@
+use frame_support::traits::IsType;
+
 use self::traits::{OrderBookIndex, OrderInterface};
 
 use super::*;
@@ -550,6 +552,18 @@ where
 
 	fn is_empty(&self) -> bool {
 		self.is_empty()
+	}
+
+	fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error> {
+		if let Some(leaf_index) = self.find_leaf(&key)? {
+			if let Some(leaf) = self.leaves.get(&leaf_index) {
+				Ok(Some(leaf.value.orders()))
+			} else {
+				Ok(None)
+			}
+		} else {
+			Ok(None)
+		}
 	}
 
 	fn min_order(&self) -> Option<(Unit, Unit)> {

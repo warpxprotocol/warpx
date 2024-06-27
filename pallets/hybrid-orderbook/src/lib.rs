@@ -1058,7 +1058,7 @@ pub mod pallet {
 			Pools::<T>::try_mutate(pool_id.clone(), |pool| -> DispatchResult {
 				let mut updated = pool.take().ok_or(Error::<T>::PoolNotFound)?;
 				updated
-					.cancel_order(owner, &pool_id, price, order_id, quantity)
+					.cancel_order(owner, price, order_id, quantity)
 					.map_err(|_| Error::<T>::ErrorOnCancelOrder)?;
 				*pool = Some(updated);
 				Self::deposit_event(Event::<T>::OrderCancelled {
@@ -1070,7 +1070,7 @@ pub mod pallet {
 			})
 		}
 
-		pub(crate) fn do_stop_limit_order(_owner: T::AccountId, _pool: Pool<T>) -> DispatchResult {
+		pub(crate) fn _do_stop_limit_order(_owner: T::AccountId, _pool: Pool<T>) -> DispatchResult {
 			Ok(())
 		}
 
@@ -1194,7 +1194,7 @@ pub mod pallet {
 			if is_bid {
 				Self::do_swap_tokens_for_exact_tokens(
 					orderer,
-					vec![base_asset.clone(), quote_asset.clone()],
+					vec![quote_asset.clone(), base_asset.clone()],
 					quantity,
 					None,
 					orderer,
@@ -1251,11 +1251,12 @@ pub mod pallet {
 			Self::quote(&One::one(), &base_reserve, &quote_reserve)
 		}
 
-		/// Find the closest swap quantity for the given order quantity.
-		/// Here, we use binary search to find the closest quantity to the target price which is
-		/// O(log(n)) where n is the order quantity. If it is bid, we return `amount_out` of base
-		/// asset while if it is ask, we return `amount_in` of base asset.
-		/// Return `quantity` that should be swapped
+		/// Find the closest swap quantity for the given order quantity. `order_quantity` is always
+		/// order quantity of `base_asset` Here, we use binary search to find the closest quantity
+		/// to the target price which is O(log(n)) where n is the order quantity. If it is bid, we
+		/// return `amount_out` of base asset while if it is ask, we return `amount_in` of base
+		/// asset. Return `quantity` of `base_asset`. If it is bid, it would return exact
+		/// `amount_out` and exact `amount_in` if it is ask.
 		pub(crate) fn find_max_swap_quantity(
 			is_bid: bool,
 			target: T::Unit,
@@ -1270,16 +1271,21 @@ pub mod pallet {
 			while min < max {
 				let mid = (min + max + One::one()) / 2u32.into();
 				let pool_price = if is_bid {
-					// If it is bid order, get `amount_in` of `quote_asset` with given `out` of
-					// `base_asset` quantity of `base_asset`
+					// If it is bid order, get `amount_in` of `quote_asset` with given `amount_out`
+					// of `base_asset` quantity of `base_asset`
 					let amount_in = Self::get_amount_in(&mid, &q_r, &b_r)?;
+					if_std! { println!("Bid order: amount_in => {:?}, K = {:?}", amount_in, ((b_r-mid)*(q_r+amount_in)));}
 					Self::quote(&One::one(), &(b_r - mid), &(q_r + amount_in))?
 				} else {
-					// If it is ask order, get `amount_out` of `quote_asset` with given `in` of
-					// `base_asset`
+					// If it is ask order, get `amount_out` of `quote_asset` with given `amount_in`
+					// of `base_asset`
 					let amount_out = Self::get_amount_out(&mid, &b_r, &q_r)?;
+					if_std! { println!("Ask order: amount_out => {:?}", amount_out);}
 					Self::quote(&One::one(), &(b_r + mid), &(q_r - amount_out))?
 				};
+				if_std! {
+					println!("Pool Price => {:?}, Mid => {:?}", pool_price, mid);
+				}
 				// Return immediately when pool price after swap is equal to orderbook price
 				if pool_price == target {
 					return Ok(mid);
@@ -1346,7 +1352,7 @@ pub mod pallet {
 				);
 			}
 
-			Self::swap(&sender, &path, &send_to, keep_alive)?;
+			Self::swap(false, &sender, &path, &send_to, keep_alive)?;
 
 			Self::deposit_event(Event::SwapExecuted {
 				who: sender.clone(),
@@ -1382,10 +1388,14 @@ pub mod pallet {
 			if let Some(amount_in_max) = amount_in_max {
 				ensure!(amount_in_max > Zero::zero(), Error::<T>::ZeroAmount);
 			}
-
+			if_std! {
+			 println!("{:?}", path);
+			}
 			Self::validate_swap_path(&path)?;
 			let path = Self::balance_path_from_amount_out(amount_out, path)?;
-
+			if_std! {
+			 println!("{:?}", path);
+			}
 			let amount_in = path.first().map(|(_, a)| *a).ok_or(Error::<T>::InvalidPath)?;
 			if let Some(amount_in_max) = amount_in_max {
 				ensure!(
@@ -1394,7 +1404,7 @@ pub mod pallet {
 				);
 			}
 
-			Self::swap(sender, &path, send_to, keep_alive)?;
+			Self::swap(true, sender, &path, send_to, keep_alive)?;
 
 			Self::deposit_event(Event::SwapExecuted {
 				who: sender.clone(),
@@ -1446,7 +1456,7 @@ pub mod pallet {
 				Err(e) => return Err((credit_in, e)),
 			};
 
-			let credit_out = Self::credit_swap(credit_in, &path)?;
+			let credit_out = Self::credit_swap(true, credit_in, &path)?;
 
 			Self::deposit_event(Event::SwapCreditExecuted { amount_in, amount_out, path });
 
@@ -1496,7 +1506,7 @@ pub mod pallet {
 			};
 
 			let (credit_in, credit_change) = credit_in.split(amount_in);
-			let credit_out = Self::credit_swap(credit_in, &path)?;
+			let credit_out = Self::credit_swap(false, credit_in, &path)?;
 
 			Self::deposit_event(Event::SwapCreditExecuted { amount_in, amount_out, path });
 
@@ -1511,15 +1521,21 @@ pub mod pallet {
 		/// only inside a transactional storage context and an Err result must imply a storage
 		/// rollback.
 		fn swap(
+			is_bid: bool,
 			sender: &T::AccountId,
 			path: &BalancePath<T>,
 			send_to: &T::AccountId,
 			keep_alive: bool,
 		) -> Result<(), DispatchError> {
 			let (asset_in, amount_in) = path.first().ok_or(Error::<T>::InvalidPath)?;
+			if_std! {
+			 println!("Swap => asset_in: {:?}, amount_in: {:?}", asset_in, amount_in);
+			}
 			let credit_in = Self::withdraw(asset_in.clone(), sender, *amount_in, keep_alive)?;
-
-			let credit_out = Self::credit_swap(credit_in, path).map_err(|(_, e)| e)?;
+			if_std! {
+			 println!("credit-in => credig_in: {:?}", credit_in);
+			}
+			let credit_out = Self::credit_swap(is_bid, credit_in, path).map_err(|(_, e)| e)?;
 			T::Assets::resolve(send_to, credit_out).map_err(|_| Error::<T>::BelowMinimum)?;
 
 			Ok(())
@@ -1537,31 +1553,44 @@ pub mod pallet {
 		/// only inside a transactional storage context and an Err result must imply a storage
 		/// rollback.
 		fn credit_swap(
+			is_bid: bool,
 			credit_in: CreditOf<T>,
 			path: &BalancePath<T>,
 		) -> Result<CreditOf<T>, (CreditOf<T>, DispatchError)> {
 			let resolve_path = || -> Result<CreditOf<T>, DispatchError> {
 				for pos in 0..=path.len() {
 					if let Some([(asset1, _), (asset2, amount_out)]) = path.get(pos..=pos + 1) {
-						let pool_from = T::PoolLocator::pool_address(asset1, asset2)
-							.map_err(|_| Error::<T>::InvalidAssetPair)?;
-
-						if let Some((asset3, _)) = path.get(pos + 2) {
-							let pool_to = T::PoolLocator::pool_address(asset2, asset3)
-								.map_err(|_| Error::<T>::InvalidAssetPair)?;
-
-							T::Assets::transfer(
-								asset2.clone(),
-								&pool_from,
-								&pool_to,
-								*amount_out,
-								Preserve,
-							)?;
-						} else {
-							let credit_out =
-								Self::withdraw(asset2.clone(), &pool_from, *amount_out, true)?;
-							return Ok(credit_out)
+						let mut base_asset = asset1;
+						let mut quote_asset = asset2;
+						if is_bid {
+							base_asset = asset2;
+							quote_asset = asset1;
 						}
+						if_std! {
+							println!("base => {:?}, quote => {:?}", base_asset, quote_asset);
+						}
+						let pool_from = T::PoolLocator::pool_address(base_asset, quote_asset)
+							.map_err(|_| Error::<T>::InvalidAssetPair)?;
+						let credit_out =
+							Self::withdraw(asset2.clone(), &pool_from, *amount_out, true)?;
+						return Ok(credit_out)
+						// TODO: Multi-hop
+						// if let Some((asset3, _)) = path.get(pos + 2) {
+						// 	let pool_to = T::PoolLocator::pool_address(asset2, asset3)
+						// 		.map_err(|_| Error::<T>::InvalidAssetPair)?;
+
+						// 	T::Assets::transfer(
+						// 		asset2.clone(),
+						// 		&pool_from,
+						// 		&pool_to,
+						// 		*amount_out,
+						// 		Preserve,
+						// 	)?;
+						// } else {
+						// 	let credit_out =
+						// 		Self::withdraw(asset2.clone(), &pool_from, *amount_out, true)?;
+						// 	return Ok(credit_out)
+						// }
 					}
 				}
 				Err(Error::<T>::InvalidPath.into())
@@ -1573,7 +1602,16 @@ pub mod pallet {
 			};
 
 			let pool_to = if let Some([(asset1, _), (asset2, _)]) = path.get(0..2) {
-				match T::PoolLocator::pool_address(asset1, asset2) {
+				let mut base_asset = asset1;
+				let mut quote_asset = asset2;
+				if is_bid {
+					base_asset = asset2;
+					quote_asset = asset1;
+				}
+				if_std! {
+					println!("base => {:?}, quote => {:?}", base_asset, quote_asset);
+				}
+				match T::PoolLocator::pool_address(base_asset, quote_asset) {
 					Ok(address) => address,
 					Err(_) => return Err((credit_in, Error::<T>::InvalidAssetPair.into())),
 				}
@@ -1602,6 +1640,7 @@ pub mod pallet {
 				// TODO drop the ensure! when this issue addressed
 				// https://github.com/paritytech/polkadot-sdk/issues/1698
 				let free = T::Assets::reducible_balance(asset.clone(), who, preservation, Polite);
+				if_std! {println!("Free of AssetId {:?} => {:?}", asset.clone(), free)}
 				ensure!(free >= value, TokenError::NotExpendable);
 			}
 			T::Assets::withdraw(asset, who, value, Exact, preservation, Polite)
@@ -1650,9 +1689,13 @@ pub mod pallet {
 						break
 					},
 				};
-				let (reserve_in, reserve_out) = Self::get_reserves(&asset1, &asset2)?;
+				// TODO: Pool Id
+				let (b_r, q_r) = Self::get_reserves(&asset2, &asset1)?;
 				balance_path.push((asset2, amount_in));
-				amount_in = Self::get_amount_in(&amount_in, &reserve_in, &reserve_out)?;
+				amount_in = Self::get_amount_in(&amount_in, &q_r, &b_r)?;
+				if_std! {
+					println!("base => {:?}, quote => {:?}, amount_in => {:?}", b_r, q_r, amount_in);
+				}
 			}
 			balance_path.reverse();
 
