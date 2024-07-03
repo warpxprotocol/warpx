@@ -520,22 +520,46 @@ fn cancel_order_works() {
 			tick_size,
 			lot_size,
 		);
+		let order_price = 100 + tick_size;
 		assert_ok!(HybridOrderbook::limit_order(
 			RuntimeOrigin::signed(2),
 			Box::new(base.clone()),
 			Box::new(quote.clone()),
 			false,
-			100 + tick_size,
-			10
+			order_price,
+			50
 		));
 		assert_ok!(HybridOrderbook::cancel_order(
 			RuntimeOrigin::signed(2),
 			Box::new(base.clone()),
 			Box::new(quote.clone()),
-			101,
-			OrderId(100),
-			5
+			order_price,
+			9223372036854775908.into(),
+			10
 		));
-		println!("{:?}", Pools::<Test>::get(&pool_id).unwrap().asks.open_orders_at(101).unwrap());
+		// Only owner can cancel
+		assert_noop!(
+			HybridOrderbook::cancel_order(
+				RuntimeOrigin::signed(1),
+				Box::new(base.clone()),
+				Box::new(quote.clone()),
+				order_price,
+				9223372036854775908.into(),
+				10
+			),
+			Error::<Test>::ErrorOnCancelOrder
+		);
+
+		// Cannot cancel more than existed
+		assert_ok!(HybridOrderbook::cancel_order(
+			RuntimeOrigin::signed(2),
+			Box::new(base.clone()),
+			Box::new(quote.clone()),
+			order_price,
+			9223372036854775908.into(),
+			40,
+		));
+		let pool = Pools::<Test>::get(&pool_id).unwrap();
+		assert!(pool.orders_for(&2, false).is_empty());
 	})
 }

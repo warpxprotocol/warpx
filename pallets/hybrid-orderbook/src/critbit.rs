@@ -1,8 +1,6 @@
-use frame_support::traits::IsType;
-
 use self::traits::{OrderBookIndex, OrderInterface};
 
-use super::*;
+use super::{Order as OrderUnit, *};
 
 #[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct CritbitTree<K, V> {
@@ -554,6 +552,15 @@ where
 		self.is_empty()
 	}
 
+	fn get_orders(&self, owner: &Account) -> Vec<OrderUnit<Unit, Account, BlockNumber>> {
+		let mut res = Vec::new();
+		self.leaves.values().for_each(|l| match l.value.find_order_of(owner) {
+			Some(mut orders) => res.append(&mut orders),
+			None => {},
+		});
+		res
+	}
+
 	fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error> {
 		if let Some(leaf_index) = self.find_leaf(&key)? {
 			if let Some(leaf) = self.leaves.get(&leaf_index) {
@@ -650,10 +657,10 @@ where
 				Ok(())
 			} else {
 				// no leaf?
-				return Ok(())
+				return Err(CritbitTreeError::NotFound)
 			}
 		} else {
-			Ok(())
+			Err(CritbitTreeError::NotFound)
 		}
 	}
 }

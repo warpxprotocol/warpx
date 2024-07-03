@@ -18,6 +18,7 @@
 use super::*;
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::{marker::PhantomData, ops::BitAnd};
+use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
 use sp_core::{RuntimeDebug, U256};
 use sp_runtime::traits::{AtLeast32BitUnsigned, TryConvert};
@@ -75,11 +76,11 @@ pub enum OrderIdError {
 impl OrderbookOrderId for OrderId {
 	type Error = OrderIdError;
 
-	fn new(is_bid: bool, order_id: u64) -> Self {
+	fn new(is_bid: bool) -> Self {
 		if is_bid {
-			Self(order_id & !(1 << (u64::BITS - 1)))
+			Self(0)
 		} else {
-			Self(order_id | (1 << (u64::BITS - 1)))
+			Self(1 << (u64::BITS - 1))
 		}
 	}
 
@@ -178,7 +179,7 @@ pub trait OrderbookOrderId:
 	type Error;
 
 	/// Create new instance of `OrderId`
-	fn new(is_bid: bool, order_id: u64) -> Self;
+	fn new(is_bid: bool) -> Self;
 	/// Increase `OrderId` by 1. Return `None`, if overflow
 	fn checked_increase(&self, is_bid: bool) -> Option<Self>;
 	/// Check whether it is id of `bid` order
@@ -279,17 +280,30 @@ impl<T: Config> Pool<T> {
 			lp_token,
 			bids: T::OrderBook::new(),
 			asks: T::OrderBook::new(),
-			next_bid_order_id: OrderId::new(true, 0),
-			next_ask_order_id: OrderId::new(false, 1),
+			next_bid_order_id: OrderId::new(true),
+			next_ask_order_id: OrderId::new(false),
 			taker_fee_rate,
 			tick_size,
 			lot_size,
 		}
 	}
 
+	// test only
+	pub fn orders_for(
+		&self,
+		owner: &T::AccountId,
+		is_bid: bool,
+	) -> Vec<Order<T::Unit, T::AccountId, BlockNumberFor<T>>> {
+		if is_bid {
+			self.bids.get_orders(owner)
+		} else {
+			self.asks.get_orders(owner)
+		}
+	}
+
 	pub fn next_bid_order_id(&mut self) -> Result<OrderId, Error<T>> {
-		let next = self.next_ask_order_id.clone();
-		self.next_ask_order_id = next.checked_increase(true).ok_or(Error::<T>::Overflow)?;
+		let next = self.next_bid_order_id.clone();
+		self.next_bid_order_id = next.checked_increase(true).ok_or(Error::<T>::Overflow)?;
 		Ok(next)
 	}
 
@@ -549,6 +563,8 @@ pub mod traits {
 		/// Check if the orderbook is empty
 		fn is_empty(&self) -> bool;
 
+		fn get_orders(&self, owner: &Account) -> Vec<Order<Unit, Account, BlockNumber>>;
+
 		fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error>;
 
 		/// Optionally return the minimum order of the orderbook which is (price, index).
@@ -641,6 +657,8 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self;
 
+		fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>>;
+
 		fn orders(&self) -> Self;
 
 		/// Return `true` if there are no open orders
@@ -705,6 +723,21 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self {
 			Self::new(order_id, owner, quantity, expired_at)
+		}
+
+		// for test only
+		fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>> {
+			let matched = self
+				.to_owned()
+				.open_orders
+				.into_values()
+				.filter(|o| o.owner() == *owner)
+				.collect::<Vec<Order<Unit, Account, BlockNumber>>>();
+			if matched.is_empty() {
+				return None
+			} else {
+				Some(matched)
+			}
 		}
 
 		fn orders(&self) -> Self {
@@ -788,6 +821,9 @@ pub mod traits {
 				ensure!(order.owner == *maybe_owner, OrderError::NotOwner);
 				order.quantity =
 					order.quantity.checked_sub(&quantity).ok_or(OrderError::Underflow)?;
+				if order.quantity == Zero::zero() {
+					self.open_orders.remove(&order_id);
+				}
 				Ok(())
 			} else {
 				return Err(OrderError::OrderNotExist);
