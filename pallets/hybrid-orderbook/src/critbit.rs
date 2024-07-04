@@ -552,6 +552,7 @@ where
 		self.is_empty()
 	}
 
+	#[cfg(test)]
 	fn get_orders(&self, owner: &Account) -> Vec<OrderUnit<Unit, Account, BlockNumber>> {
 		let mut res = Vec::new();
 		self.leaves.values().for_each(|l| match l.value.find_order_of(owner) {
@@ -559,18 +560,6 @@ where
 			None => {},
 		});
 		res
-	}
-
-	fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error> {
-		if let Some(leaf_index) = self.find_leaf(&key)? {
-			if let Some(leaf) = self.leaves.get(&leaf_index) {
-				Ok(Some(leaf.value.orders()))
-			} else {
-				Ok(None)
-			}
-		} else {
-			Ok(None)
-		}
 	}
 
 	fn min_order(&self) -> Option<(Unit, Unit)> {

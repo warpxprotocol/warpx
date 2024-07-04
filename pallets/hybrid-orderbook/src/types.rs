@@ -289,6 +289,7 @@ impl<T: Config> Pool<T> {
 	}
 
 	// test only
+	#[cfg(test)]
 	pub fn orders_for(
 		&self,
 		owner: &T::AccountId,
@@ -563,9 +564,8 @@ pub mod traits {
 		/// Check if the orderbook is empty
 		fn is_empty(&self) -> bool;
 
+		#[cfg(test)]
 		fn get_orders(&self, owner: &Account) -> Vec<Order<Unit, Account, BlockNumber>>;
-
-		fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error>;
 
 		/// Optionally return the minimum order of the orderbook which is (price, index).
 		/// Return `None`, if the orderbook is empty
@@ -657,9 +657,8 @@ pub mod traits {
 			expired_at: BlockNumber,
 		) -> Self;
 
+		#[cfg(test)]
 		fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>>;
-
-		fn orders(&self) -> Self;
 
 		/// Return `true` if there are no open orders
 		fn is_empty(&self) -> bool;
@@ -726,6 +725,7 @@ pub mod traits {
 		}
 
 		// for test only
+		#[cfg(test)]
 		fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>> {
 			let matched = self
 				.to_owned()
@@ -738,10 +738,6 @@ pub mod traits {
 			} else {
 				Some(matched)
 			}
-		}
-
-		fn orders(&self) -> Self {
-			self.clone()
 		}
 
 		fn is_empty(&self) -> bool {
