@@ -1,5 +1,5 @@
 [workspace.package]
-authors = ["HybriDex"]
+authors = ["warpX"]
 edition = "2021"
 repository = "https://github.com/Hanaverse/hanaverse"
 license = "MIT-0"
