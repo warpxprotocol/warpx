@@ -1,6 +1,6 @@
 # warp(x)
 
-[**_warpX_**](https://warpx.vercel.app) is a fully on-chain [hybrid orderbook](./pallets/hybrid-orderbook/README.md) exchange with AMM implemented in [Rust](https://www.rust-lang.org/)
+[**_warpX_**](https://warpx.vercel.app) is a fully on-chain [hybrid orderbook](./pallets/hybrid-orderbook/README.md) exchange with AMM implemented in [Rust](https://www.rust-lang.org/).
 
 ## Why Polkadot?
 
@@ -27,7 +27,7 @@ These features make Polkadot an ideal platform for building our hybrid orderbook
 
 ## Hybrid Orderbook
 
-Pool is always located at the middle of bid/ask orderbook where the current price of pair is made and eliminating the spread between those two. As a result, order is matched at the better price, which is taking instant arbitrage, the market provided.
+Pool is always located at the middle of the bid/ask orderbook where the current price of the pair is determined, eliminating the spread between the two. As a result, orders are matched at a better price, which takes advantage of the instant arbitrage opportunity provided by the market.
 
 **Process of matching order**
 
@@ -38,14 +38,14 @@ Pool is always located at the middle of bid/ask orderbook where the current pric
 **Reward Distribution**
 
 - Takers Pay Makers Earn
-- No matter how(e.g limit order or add liquidity to the pool) user provides its liquidity to the pool, will get rewards of trading fee
+- No matter how (e.g limit order or add liquidity to the pool) the user provide liquidity to the pool, they will receive rewards from trading fees.
 
 ## NOMT
 
 > [the Nearly-Optimal Merkle Trie Database](https://www.rob.tech/blog/introducing-nomt/)
 
 - Storage layer
-- Since fully on-chain matching order requires large amount of storage io, it is important to make cost efficient as much as possible. _warpX_ applied _NOMT_
+- Since fully on-chain order matching requires a large amount of storage I/O, it is important to make it as cost-efficient as possible. _warpX_ applied _NOMT_.
 
 ## Multi Asset
 
@@ -53,8 +53,8 @@ Pool is always located at the middle of bid/ask orderbook where the current pric
 
 ## Private Trading
 
-- With the power of ZKP, _warpX_ enables users to trade without revealing their identity on-chain. That said, only the token and its amount of order is revealed
-- This feature is still work in progress
+- With the power of ZKP, _warpX_ enables users to trade without revealing their identity on-chain. That said, only the token and its amount of order is revealed.
+- This feature is still work in progress.
 
 # Milestones
 
@@ -66,11 +66,11 @@ Pool is always located at the middle of bid/ask orderbook where the current pric
 
 ### Phase 2
 
-- [ ] Integrates NOMT
+- [ ] Integrate NOMT
 
 ### Phase 3
 
-- [ ] Integrates multi-assets such as EVM-compatible or other parachains' assets
+- [ ] Integrate multi-assets from other parachains or EVM-compatible blockchains
 
 ### Phase 4
 
