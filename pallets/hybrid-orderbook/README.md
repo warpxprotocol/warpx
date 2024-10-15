@@ -22,7 +22,7 @@ Advantages of AMM:
 **_Hybrid Orderbook_** combines the best part of both worlds:
 
 - Traditional orderbook model with an Automated Market Maker(a.k.a AMM) so that trading pairs with wide spreads still have automated market making, **creating an effect of zero spread**.
-- There is a liquidity pool in the middle of the orderbook, and all orders (buys or sells) occur at the best price between the two. For example, a market buy order will take liquidity from the pool if cheaper than the orderbook, or vice versa.
+- There is a liquidity pool in the middle of the orderbook, and all orders (buys or sells) occur at the best price between the two. For example, a market buy order will take liquidity from the pool if cheaper than the orderbook, or vice versa. That said, orders will always be matched with the better price between the pool and orderbook.
 
 ### Order Types
 
