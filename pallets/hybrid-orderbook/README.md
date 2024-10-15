@@ -1,12 +1,30 @@
 # Pallet Hybrid Orderbook
 
-> Full-onchain decentralized exchange that combined orderbook and liquidity pool
+> Fully on-chain decentralized exchange combined traditional orderbook and liquidity pool(AMM)
 
 ## Overview
 
-Traditional orderbook-based trading shows the psychology and intent of buyers and sellers in the market, as well as the level of liquidity. The orderbook operates in real-time, constantly updating to reflect the current state of the market, allowing market participants to gauge market sentiment and trends through orderbook data. Order matching occurs by matching the lowest priced sell order with the highest priced buy order. The difference between the two prices is called the spread, which indicates market depth and liquidity. For example, a tight spread generally signifies a liquid market, minimizing trading costs (e.g. slippage) for market participants. In contrast, a wider spread represents an illiquid market with higher trading costs when trades occur. To provide constant liquidity and facilitate active trading, exchanges utilize Market Makers (a.k.a MM).
+Traditional orderbook-based trading shows the psychology and intent of buyers and sellers in the market, as well as the level of liquidity. The orderbook operates in real-time, constantly updating to reflect the current state of the market. Order matching occurs by matching the lowest priced sell order with the highest priced buy order. The difference between the two prices is called _spread_, which indicates market depth and liquidity. For example, a tight spread generally signifies a liquid market, minimizing trading costs (a.k.a slippage) for market participants. In contrast, a wider spread represents an illiquid market with higher trading costs when trades occur. To provide constant liquidity and facilitate active trading, exchanges utilize _Market Makers_ (a.k.a MM).
 
-### Orderbook Trade Types
+Advantages of Ordebook:
+
+- High capital efficiency
+- Transparency: Get a transparent view of market supply and demand
+
+On the other hand, AMM-based trading pools provide liquidity and **_automatically match orders_** based on the price set by the pool which basically has **_no spread_**.
+
+Advantages of AMM:
+
+- Automatically match orders with zero spread
+- Market can be created permissonlessly
+- LP get rewards
+
+**_Hybrid Orderbook_** combines the best part of both worlds:
+
+- Traditional orderbook model with an Automated Market Maker(a.k.a AMM) so that trading pairs with wide spreads still have automated market making, **creating an effect of zero spread**.
+- There is a liquidity pool in the middle of the orderbook, and all orders (buys or sells) occur at the best price between the two. For example, a market buy order will take liquidity from the pool if cheaper than the orderbook, or vice versa. That said, orders will always be matched with the better price between the pool and orderbook.
+
+### Order Types
 
 - Market Order: Participants buy or sell immediately at the best available current market price.
 - Limit Order: Participants set a specific price to buy or sell.
@@ -115,7 +133,7 @@ Captures trade details like when (e.g. BlockNumber), how much volume (e.g. Volum
 ## Types
 
 ```rust
-// Fully generic type for orderbook which can be configured on Runtime
+// Generic type for orderbook which can be configured on Runtime
 pub struct Pool<OrderBook> {
   /// Liquidity pool asset
 	pub lp_token: AssetId,
@@ -151,7 +169,7 @@ pub struct Tick<Quantity, Account, BlockNumber> {
 }
 ```
 
-## OrderBook Data Structure
+## OrderBook
 
 ### Critbit Tree
 
