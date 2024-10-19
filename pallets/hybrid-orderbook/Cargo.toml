@@ -1,6 +1,6 @@
 [package]
 name = "pallet-hybrid-orderbook"
-version = "4.0.0-dev"
+version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -14,61 +14,35 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 
-# external crates
-codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = [
-    "derive",
-] }
-scale-info = { version = "2.10.0", default-features = false, features = [
-    "derive",
-] }
+# External crates
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 
-# primitive crates
-sp-api = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
-sp-std = { workspace = true }
-sp-runtime = { workspace = true }
-sp-arithmetic = { workspace = true }
+# PolkadotSDK
+polkadot-sdk = { workspace = true, features = [
+    "experimental",
+    "pallet-assets",
+    "pallet-balances",
+    "runtime",
+] }
 
-# FRAMES
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-frame-benchmarking = { workspace = true, optional = true }
-pallet-assets = { workspace = true }
+# FRAMEs
+frame = { workspace = true, features = ["experimental", "runtime"] }
 
 [dev-dependencies]
-pallet-balances = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-benchmarking?/std",
-    "frame-support/std",
-    "frame-system/std",
     "log/std",
-    "pallet-assets/std",
-    "pallet-balances/std",
     "scale-info/std",
-    "sp-api/std",
-    "sp-arithmetic/std",
-    "sp-core/std",
-    "sp-io/std",
-    "sp-runtime/std",
-    "sp-std/std",
+    "polkadot-sdk/std",
+    "frame/std",
 ]
 runtime-benchmarks = [
-    "frame-benchmarking?/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "pallet-balances/runtime-benchmarks",
-    "sp-runtime/runtime-benchmarks",
+    "polkadot-sdk/runtime-benchmarks",
+    "frame/runtime-benchmarks",
 ]
-try-runtime = [
-    "frame-support/try-runtime",
-    "frame-system/try-runtime",
-    "pallet-assets/try-runtime",
-    "pallet-balances/try-runtime",
-    "sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime", "frame/try-runtime"]

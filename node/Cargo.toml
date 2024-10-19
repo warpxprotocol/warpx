@@ -1,7 +1,7 @@
 [package]
-name = "hanaverse-node"
-version = "4.0.0-dev"
-description = "A minimal FRAME-based Substrate node"
+name = "warpx-node"
+version = "0.1.0"
+description = "FRAME-based Substrate node"
 license = "MIT-0"
 build = "build.rs"
 authors.workspace = true
@@ -15,69 +15,27 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [[bin]]
-name = "hanaverse-node"
+name = "warpx-node"
 
 [dependencies]
-clap = { version = "4.4.2", features = ["derive"] }
-futures = { version = "0.3.21", features = ["thread-pool"]}
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true, features = ["thread-pool"] }
 serde_json = { workspace = true, default-features = true }
-jsonrpsee = { version = "0.22", features = ["server"] }
+jsonrpsee = { workspace = true, features = ["server"] }
 
-sc-cli = { workspace = true }
-sp-core = { workspace = true }
-sc-chain-spec = { workspace = true }
-sc-executor = { workspace = true }
-sc-network = { workspace = true }
-sc-service = { workspace = true }
-sc-telemetry = { workspace = true }
-sc-transaction-pool = { workspace = true }
-sc-transaction-pool-api = { workspace = true }
-sc-offchain = { workspace = true }
-sc-statement-store = { workspace = true }
-sc-consensus-aura = { workspace = true }
-sc-consensus-grandpa = { workspace = true }
-sc-consensus = { workspace = true }
-sp-consensus-grandpa = { workspace = true }
-sc-client-api = { workspace = true }
-sp-runtime = { workspace = true }
-sp-io = { workspace = true }
-sp-timestamp = { workspace = true }
-sp-inherents = { workspace = true }
-sp-keyring = { workspace = true }
-sp-consensus-aura = { workspace = true }
-frame-system = { workspace = true }
-pallet-transaction-payment = { workspace = true }
-
-# These dependencies are used for the node template's RPCs
-sp-api = { workspace = true }
-sc-rpc-api = { workspace = true }
-sp-blockchain = { workspace = true }
-sp-block-builder = { workspace = true }
-sc-basic-authorship = { workspace = true }
-substrate-frame-rpc-system = { workspace = true }
-pallet-transaction-payment-rpc = { workspace = true }
-
-# These dependencies are used for runtime benchmarking
-frame-benchmarking = { workspace = true }
-frame-benchmarking-cli = { workspace = true }
+polkadot-sdk = { workspace = true, features = [
+    "experimental",
+    "pallet-transaction-payment",
+    "pallet-transaction-payment-rpc",
+    "node",
+] }
 
 # Local Dependencies
-hanaverse-runtime = { version = "4.0.0-dev", path = "../runtime" }
-
-# CLI-specific dependencies
-try-runtime-cli = { workspace = true, optional = true }
+warpx-runtime = { workspace = true, default-features = true }
 
 [build-dependencies]
-substrate-build-script-utils = { workspace = true }
+polkadot-sdk = { workspace = true, features = ["substrate-build-script-utils"] }
 
 [features]
-default = []
-# Dependencies that are only required if runtime benchmarking should be build.
-runtime-benchmarks = [
-	"hanaverse-runtime/runtime-benchmarks",
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-benchmarking-cli/runtime-benchmarks",
-]
-# Enable features that allow the runtime to be tried and debugged. Name might be subject to change
-# in the near future.
-try-runtime = ["hanaverse-runtime/try-runtime", "try-runtime-cli/try-runtime"]
+default = ["std"]
+std = ["warpx-runtime/std", "polkadot-sdk/std"]

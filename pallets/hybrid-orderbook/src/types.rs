@@ -16,13 +16,6 @@
 // limitations under the License.
 
 use super::*;
-use codec::{Decode, Encode, MaxEncodedLen};
-use core::{marker::PhantomData, ops::BitAnd};
-use frame_system::pallet_prelude::BlockNumberFor;
-use scale_info::TypeInfo;
-use sp_core::{RuntimeDebug, U256};
-use sp_runtime::traits::{AtLeast32BitUnsigned, TryConvert};
-use sp_std::vec::Vec;
 
 pub use traits::{OrderBook, OrderBookIndex};
 
@@ -446,7 +439,7 @@ where
 	}
 
 	fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
-		let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+		let encoded = blake2_256(&Encode::encode(id)[..]);
 		Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
 	}
 }
@@ -475,7 +468,7 @@ where
 		}
 	}
 	fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
-		let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+		let encoded = blake2_256(&Encode::encode(id)[..]);
 		Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
 	}
 }
@@ -496,7 +489,7 @@ where
 		}
 	}
 	fn address(id: &(AssetKind, AssetKind)) -> Result<AccountId, ()> {
-		let encoded = sp_io::hashing::blake2_256(&Encode::encode(id)[..]);
+		let encoded = blake2_256(&Encode::encode(id)[..]);
 		Decode::decode(&mut TrailingZeroInput::new(encoded.as_ref())).map_err(|_| ())
 	}
 }
@@ -528,7 +521,7 @@ where
 	Seed: Get<PalletId>,
 {
 	fn try_convert(id: &PoolId) -> Result<AccountId, &PoolId> {
-		sp_io::hashing::blake2_256(&Encode::encode(&(Seed::get(), id))[..])
+		blake2_256(&Encode::encode(&(Seed::get(), id))[..])
 			.using_encoded(|e| Decode::decode(&mut TrailingZeroInput::new(e)).map_err(|_| id))
 	}
 }
@@ -541,7 +534,7 @@ where
 	AccountId: Decode,
 {
 	fn try_convert(id: &PoolId) -> Result<AccountId, &PoolId> {
-		sp_io::hashing::blake2_256(&Encode::encode(id)[..])
+		blake2_256(&Encode::encode(id)[..])
 			.using_encoded(|e| Decode::decode(&mut TrailingZeroInput::new(e)).map_err(|_| id))
 	}
 }
@@ -605,7 +598,7 @@ pub mod traits {
 
 	/// Index trait for the critbit tree.
 	pub trait OrderBookIndex:
-		sp_std::fmt::Debug + Default + AtLeast32BitUnsigned + Copy + BitAnd<Output = Self>
+		Debug + Default + AtLeast32BitUnsigned + Copy + BitAnd<Output = Self>
 	{
 		/// Maximum index value.
 		const MAX_INDEX: Self;

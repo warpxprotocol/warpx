@@ -1,6 +1,6 @@
-// This file is part of Substrate.
+// This file is part of warp(x) .
 
-// Copyright (C) Parity Technologies (UK) Ltd.
+// Copyright (C) warp(x) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,42 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # Substrate Asset Conversion pallet
-//!
-//! Substrate Asset Conversion pallet based on the [Uniswap V2](https://github.com/Uniswap/v2-core) logic.
-//!
-//! ## Overview
-//!
-//! This pallet allows you to:
-//!
-//!  - [create a liquidity pool](`Pallet::create_pool()`) for 2 assets
-//!  - [provide the liquidity](`Pallet::add_liquidity()`) and receive back an LP token
-//!  - [exchange the LP token back to assets](`Pallet::remove_liquidity()`)
-//!  - [swap a specific amount of assets for another](`Pallet::swap_exact_tokens_for_tokens()`) if
-//!    there is a pool created, or
-//!  - [swap some assets for a specific amount of
-//!    another](`Pallet::swap_tokens_for_exact_tokens()`).
-//!  - [query for an exchange price](`AssetConversionApi::quote_price_exact_tokens_for_tokens`) via
-//!    a runtime call endpoint
-//!  - [query the size of a liquidity pool](`AssetConversionApi::get_reserves`) via a runtime api
-//!    endpoint.
-//!
-//! The `quote_price_exact_tokens_for_tokens` and `quote_price_tokens_for_exact_tokens` functions
-//! both take a path parameter of the route to take. If you want to swap from native asset to
-//! non-native asset 1, you would pass in a path of `[DOT, 1]` or `[1, DOT]`. If you want to swap
-//! from non-native asset 1 to non-native asset 2, you would pass in a path of `[1, DOT, 2]`.
-//!
-//! (For an example of configuring this pallet to use `Location` as an asset id, see the
-//! cumulus repo).
-//!
-//! Here is an example `state_call` that asks for a quote of a pool of native versus asset 1:
-//!
-//! ```text
-//! curl -sS -H "Content-Type: application/json" -d \
-//! '{"id":1, "jsonrpc":"2.0", "method": "state_call", "params": ["AssetConversionApi_quote_price_tokens_for_exact_tokens", "0x0101000000000000000000000011000000000000000000"]}' \
-//! http://localhost:9933/
-//! ```
-//! (This can be run against the kitchen sync node in the `node` folder of this repo.)
+//! # Hybrid Orderbook Pallet
+
 // #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -67,56 +33,22 @@ pub mod weights;
 #[cfg(feature = "runtime-benchmarks")]
 pub use benchmarking::{BenchmarkHelper, NativeOrWithIdFactory};
 pub use critbit::*;
-pub use pallet::*;
 pub use swap::*;
 pub use types::*;
 pub use weights::WeightInfo;
+mod imports;
+pub use imports::*;
+mod impl_dispatch;
+use impl_dispatch::*;
 
-use codec::{Codec, Decode, Encode};
-use frame_support::{
-	ensure,
-	storage::{with_storage_layer, with_transaction},
-	traits::{
-		fungibles::{Balanced, Create, Credit, Inspect, Mutate},
-		tokens::{
-			AssetId, Balance,
-			Fortitude::Polite,
-			Precision::Exact,
-			Preservation::{Expendable, Preserve},
-		},
-		AccountTouch, Incrementable, OnUnbalanced,
-	},
-	PalletId,
-};
-pub use pallet_assets::FrozenBalance;
-use scale_info::TypeInfo;
-use sp_core::Get;
-use sp_runtime::{
-	traits::{
-		AccountIdConversion, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Ensure,
-		IntegerSquareRoot, MaybeDisplay, One, TrailingZeroInput, Zero,
-	},
-	DispatchError, Permill, Saturating, TokenError, TransactionOutcome,
-};
-use sp_std::{
-	boxed::Box,
-	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
-	if_std, vec,
-	vec::Vec,
-};
+pub use pallet::*;
 
 const LOG_TARGET: &str = "FRAME: Hybrid-Orderbook";
 
-#[frame_support::pallet]
+#[frame::pallet]
 pub mod pallet {
 
 	use super::*;
-	use frame_support::{
-		pallet_prelude::{DispatchResult, *},
-		Twox64Concat,
-	};
-	use frame_system::pallet_prelude::*;
-	use sp_arithmetic::{traits::Unsigned, Permill};
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -721,7 +653,14 @@ pub mod pallet {
 			);
 
 			// burn the provided lp token amount that includes the fee
-			T::PoolAssets::burn_from(pool.lp_token.clone(), &sender, lp_token_burn, Exact, Polite)?;
+			T::PoolAssets::burn_from(
+				pool.lp_token.clone(),
+				&sender,
+				lp_token_burn,
+				Expendable,
+				Exact,
+				Polite,
+			)?;
 
 			T::Assets::transfer(
 				*base_asset,
@@ -1919,39 +1858,4 @@ pub mod pallet {
 	}
 }
 
-sp_api::decl_runtime_apis! {
-	/// This runtime api allows people to query the size of the liquidity pools
-	/// and quote prices for swaps.
-	pub trait AssetConversionApi<Balance, AssetId>
-	where
-		Balance: frame_support::traits::tokens::Balance + MaybeDisplay,
-		AssetId: Codec,
-	{
-		/// Provides a quote for [`Pallet::swap_tokens_for_exact_tokens`].
-		///
-		/// Note that the price may have changed by the time the transaction is executed.
-		/// (Use `amount_in_max` to control slippage.)
-		fn quote_price_tokens_for_exact_tokens(
-			asset1: AssetId,
-			asset2: AssetId,
-			amount: Balance,
-			include_fee: bool,
-		) -> Option<Balance>;
-
-		/// Provides a quote for [`Pallet::swap_exact_tokens_for_tokens`].
-		///
-		/// Note that the price may have changed by the time the transaction is executed.
-		/// (Use `amount_out_min` to control slippage.)
-		fn quote_price_exact_tokens_for_tokens(
-			asset1: AssetId,
-			asset2: AssetId,
-			amount: Balance,
-			include_fee: bool,
-		) -> Option<Balance>;
-
-		/// Returns the size of the liquidity pool for the given asset pair.
-		fn get_reserves(asset1: AssetId, asset2: AssetId) -> Option<(Balance, Balance)>;
-	}
-}
-
-sp_core::generate_feature_enabled_macro!(runtime_benchmarks_enabled, feature = "runtime-benchmarks", $);
+generate_feature_enabled_macro!(runtime_benchmarks_enabled, feature = "runtime-benchmarks", $);
