@@ -10,22 +10,33 @@ publish = false
 resolver = "2"
 
 members = ["node", "pallets/hybrid-orderbook", "runtime"]
+
 [profile.release]
 panic = "unwind"
 
 [workspace.dependencies]
+# External
 smallvec = { version = "1.11.0", default-features = false }
 log = { version = "0.4.22", default-features = false }
 serde_json = { version = "1.0.114", default-features = false }
+serde = { version = "1.0.210", default-features = false }
 codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false }
 scale-info = { version = "2.10.0", default-features = false }
 clap = { version = "4.4.2" }
 futures = { version = "0.3.21" }
-jsonrpsee = { version = "0.22" }
+jsonrpsee = { version = "0.24.3" }
+jsonrpsee-core = { version = "0.24.3" }
+docify = { version = "0.2.8" }
 
+# Local pallet
 pallet-hybrid-orderbook = { version = "0.1.0", path = "./pallets/hybrid-orderbook", default-features = false }
 
+# Local Runtime
 warpx-runtime = { version = "0.1.0", path = "./runtime", default-features = false }
 
+# PolkadotSDK
 polkadot-sdk = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-stable2409" }
 frame = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-stable2409", package = "polkadot-sdk-frame" }
+cumulus-pallet-parachain-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-stable2409" }
+sc-tracing = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-stable2409" }
+prometheus-endpoint = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk.git", tag = "polkadot-stable2409", package = "substrate-prometheus-endpoint" }

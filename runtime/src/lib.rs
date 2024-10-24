@@ -13,16 +13,15 @@ use smallvec::smallvec;
 
 use polkadot_sdk::{staging_parachain_info as parachain_info, *};
 
-mod apis;
-use apis::*;
+pub mod apis;
 mod configs;
 mod constants;
+mod genesis_config_presets;
 pub use constants::{currency::*, time::*};
 
 // Primtivies
-use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata, U256};
+
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 use sp_runtime::{
@@ -30,8 +29,7 @@ use sp_runtime::{
 	traits::{
 		AccountIdConversion, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify,
 	},
-	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, MultiSignature,
+	MultiSignature,
 };
 pub use sp_runtime::{Perbill, Permill};
 use sp_std::prelude::*;
@@ -69,7 +67,6 @@ use pallet_hybrid_orderbook::{
 };
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
-use polkadot_runtime_common::SlowAdjustingFeeUpdate;
 
 pub use primitives::*;
 pub mod primitives {
@@ -89,7 +86,7 @@ pub mod primitives {
 	pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
 	/// Balance of an account.
-	pub type Balance = u64;
+	pub type Balance = u128;
 
 	/// Index of a transaction in the chain.
 	pub type Nonce = u32;
@@ -107,14 +104,13 @@ pub mod primitives {
 	pub type PoolId = u64;
 }
 
-/// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
-/// the specifics of the runtime. They can then be made to be agnostic over specific formats
-/// of data like extrinsics, allowing for them to continue syncing the network through upgrades
-/// to even the core data structures.
 pub mod opaque {
 	use super::*;
-
-	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+	pub use polkadot_sdk::sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+	use polkadot_sdk::sp_runtime::{
+		generic,
+		traits::{BlakeTwo256, Hash as HashT},
+	};
 
 	/// Opaque block header type.
 	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
@@ -122,13 +118,37 @@ pub mod opaque {
 	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 	/// Opaque block identifier type.
 	pub type BlockId = generic::BlockId<Block>;
+	/// Opaque block hash type.
+	pub type Hash = <BlakeTwo256 as HashT>::Output;
+}
 
-	impl_opaque_keys! {
-		pub struct SessionKeys {
-			pub aura: Aura,
-		}
+impl_opaque_keys! {
+	pub struct SessionKeys {
+		pub aura: Aura,
 	}
 }
+
+#[docify::export]
+mod async_backing_params {
+	/// Maximum number of blocks simultaneously accepted by the Runtime, not yet included
+	/// into the relay chain.
+	pub(crate) const UNINCLUDED_SEGMENT_CAPACITY: u32 = 3;
+	/// How many parachain blocks are processed by the relay chain per parent. Limits the
+	/// number of blocks authored per slot.
+	pub(crate) const BLOCK_PROCESSING_VELOCITY: u32 = 1;
+	/// Relay chain slot duration, in milliseconds.
+	pub(crate) const RELAY_CHAIN_SLOT_DURATION_MILLIS: u32 = 6000;
+}
+pub(crate) use async_backing_params::*;
+
+#[docify::export]
+/// Aura consensus hook
+type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
+	Runtime,
+	RELAY_CHAIN_SLOT_DURATION_MILLIS,
+	BLOCK_PROCESSING_VELOCITY,
+	UNINCLUDED_SEGMENT_CAPACITY,
+>;
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
@@ -149,6 +169,13 @@ pub fn native_version() -> NativeVersion {
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
+#[docify::export(max_block_weight)]
+/// We allow for 2 seconds of compute with a 6 second average block time.
+const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
+	WEIGHT_REF_TIME_PER_SECOND.saturating_mul(2),
+	cumulus_primitives_core::relay_chain::MAX_POV_SIZE as u64,
+);
+
 #[frame_support::runtime]
 mod runtime {
 	#[runtime::runtime]
@@ -166,31 +193,58 @@ mod runtime {
 	pub struct Runtime;
 
 	#[runtime::pallet_index(0)]
-	type System = frame_system;
-
+	pub type System = frame_system;
 	#[runtime::pallet_index(1)]
-	type Timestamp = pallet_timestamp;
+	pub type ParachainSystem = cumulus_pallet_parachain_system;
+	#[runtime::pallet_index(2)]
+	pub type Timestamp = pallet_timestamp;
+	#[runtime::pallet_index(3)]
+	pub type ParachainInfo = parachain_info;
 
 	#[runtime::pallet_index(5)]
-	type Balances = pallet_balances;
+	pub type Balances = pallet_balances;
 
+	#[runtime::pallet_index(40)]
+	pub type TransactionPayment = pallet_transaction_payment;
+
+	// Collator support
 	#[runtime::pallet_index(20)]
-	type Aura = pallet_aura;
+	pub type Authorship = pallet_authorship;
+	#[runtime::pallet_index(21)]
+	pub type CollatorSelection = pallet_collator_selection;
+	#[runtime::pallet_index(22)]
+	pub type Session = pallet_session;
+	#[runtime::pallet_index(23)]
+	pub type Aura = pallet_aura;
+	#[runtime::pallet_index(24)]
+	pub type AuraExt = cumulus_pallet_aura_ext;
 
+	// XCM helpers.
 	#[runtime::pallet_index(30)]
-	type TransactionPayment = pallet_transaction_payment;
+	pub type XcmpQueue = cumulus_pallet_xcmp_queue;
+	#[runtime::pallet_index(31)]
+	pub type PolkadotXcm = pallet_xcm;
+	#[runtime::pallet_index(32)]
+	pub type CumulusXcm = cumulus_pallet_xcm;
+	#[runtime::pallet_index(33)]
+	pub type MessageQueue = pallet_message_queue;
 
-	#[runtime::pallet_index(38)]
-	pub type Assets = pallet_assets<Instance1>;
-
-	#[runtime::pallet_index(39)]
-	pub type PoolAssets = pallet_assets<Instance2>;
-
+	// Main
 	#[runtime::pallet_index(50)]
+	pub type Assets = pallet_assets<Instance1>;
+	#[runtime::pallet_index(51)]
+	pub type PoolAssets = pallet_assets<Instance2>;
+	#[runtime::pallet_index(52)]
 	pub type HybridOrderbook = pallet_hybrid_orderbook;
 
 	#[runtime::pallet_index(99)]
-	type Sudo = pallet_sudo;
+	pub type Sudo = pallet_sudo;
+}
+
+#[docify::export(register_validate_block)]
+cumulus_pallet_parachain_system::register_validate_block! {
+	Runtime = Runtime,
+	BlockExecutor = cumulus_pallet_aura_ext::BlockExecutor::<Runtime, Executive>,
 }
 
 /// The address format for describing accounts.

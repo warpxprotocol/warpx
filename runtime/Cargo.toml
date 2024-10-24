@@ -12,16 +12,19 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+docify = { workspace = true }
 smallvec = { workspace = true, default-features = true }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
-
+serde_json = { workspace = true }
 polkadot-sdk = { workspace = true, features = [
     "experimental",
     "pallet-assets",
+    "pallet-authorship",
     "pallet-aura",
     "pallet-balances",
-    "pallet-grandpa",
+    "pallet-message-queue",
+    "pallet-session",
     "pallet-sudo",
     "pallet-timestamp",
     "pallet-transaction-payment",
@@ -45,9 +48,11 @@ polkadot-sdk = { workspace = true, features = [
     "pallet-collator-selection",
     "parachains-common",
     "staging-parachain-info",
-
+    "parachains-common",
     "runtime",
 ] }
+
+cumulus-pallet-parachain-system = { workspace = true }
 
 # Local
 pallet-hybrid-orderbook = { workspace = true }
@@ -63,6 +68,7 @@ std = [
     "codec/std",
     "scale-info/std",
     "polkadot-sdk/std",
+    "cumulus-pallet-parachain-system/std",
     "pallet-hybrid-orderbook/std",
 ]
 runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
