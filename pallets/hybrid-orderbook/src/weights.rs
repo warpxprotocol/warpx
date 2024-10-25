@@ -44,7 +44,8 @@
 #![allow(unused_imports)]
 #![allow(missing_docs)]
 
-use super::{Get, Weight, RocksDbWeight, PhantomData, frame_system};
+use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}};
+use core::marker::PhantomData;
 
 /// Weight functions needed for `pallet_asset_conversion`.
 pub trait WeightInfo {

@@ -1,5 +1,30 @@
-use polkadot_sdk::*;
+// This is free and unencumbered software released into the public domain.
+//
+// Anyone is free to copy, modify, publish, use, compile, sell, or
+// distribute this software, either in source code form or as a compiled
+// binary, for any purpose, commercial or non-commercial, and by any
+// means.
+//
+// In jurisdictions that recognize copyright laws, the author or authors
+// of this software dedicate any and all copyright interest in the
+// software to the public domain. We make this dedication for the benefit
+// of the public at large and to the detriment of our heirs and
+// successors. We intend this dedication to be an overt act of
+// relinquishment in perpetuity of all present and future rights to this
+// software under copyright law.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+// OTHER DEALINGS IN THE SOFTWARE.
+//
+// For more information, please refer to <http://unlicense.org>
 
+// External crates imports
+use alloc::vec::Vec;
 use frame_support::{
 	genesis_builder_helper::{build_state, get_preset},
 	weights::Weight,
@@ -15,12 +40,14 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 
+// Local module imports
 use super::{
-	opaque, AccountId, Aura, Balance, Block, ConsensusHook, Executive, InherentDataExt, Nonce,
-	ParachainSystem, Runtime, RuntimeCall, RuntimeGenesisConfig, SessionKeys, System,
-	TransactionPayment, Vec, SLOT_DURATION, VERSION,
+	AccountId, Balance, Block, ConsensusHook, Executive, InherentDataExt, Nonce, ParachainSystem,
+	Runtime, RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment,
+	SLOT_DURATION, VERSION,
 };
 
+// we move some impls outside so we can easily use them with `docify`.
 impl Runtime {
 	#[docify::export]
 	fn impl_slot_duration() -> sp_consensus_aura::SlotDuration {
@@ -214,10 +241,10 @@ impl_runtime_apis! {
 	impl frame_benchmarking::Benchmark<Block> for Runtime {
 		fn benchmark_metadata(extra: bool) -> (
 			Vec<frame_benchmarking::BenchmarkList>,
-			Vec<polkadot_sdk::frame_support::traits::StorageInfo>,
+			Vec<frame_support::traits::StorageInfo>,
 		) {
 			use frame_benchmarking::{Benchmarking, BenchmarkList};
-			use polkadot_sdk::frame_support::traits::StorageInfoTrait;
+			use frame_support::traits::StorageInfoTrait;
 			use frame_system_benchmarking::Pallet as SystemBench;
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
 			use super::*;
@@ -250,7 +277,7 @@ impl_runtime_apis! {
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
 			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
 
-			use polkadot_sdk::frame_support::traits::WhitelistedStorageKeys;
+			use frame_support::traits::WhitelistedStorageKeys;
 			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();
 
 			let mut batches = Vec::<BenchmarkBatch>::new();
@@ -268,11 +295,11 @@ impl_runtime_apis! {
 		}
 
 		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config_presets::get_preset)
+			get_preset::<RuntimeGenesisConfig>(id, |_| None)
 		}
 
 		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			crate::genesis_config_presets::preset_names()
+			Default::default()
 		}
 	}
 }

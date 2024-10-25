@@ -15,35 +15,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Test environment for Asset Conversion pallet.
+
 use super::*;
 use crate as pallet_hybrid_orderbook;
-
 use core::default::Default;
-pub use polkadot_sdk::{
-	frame_support::{
-		assert_noop, assert_ok, construct_runtime, derive_impl,
-		instances::{Instance1, Instance2},
-		ord_parameter_types, parameter_types,
-		traits::{
-			fungible::Inspect as FungibleInspect,
-			fungibles::{Inspect, InspectEnumerable},
-			tokens::{
-				fungible::{NativeFromLeft, NativeOrWithId, UnionOf},
-				imbalance::ResolveAssetTo,
-			},
-			AsEnsureOriginWithArg, ConstU32, Get,
+use frame_support::{
+	construct_runtime, derive_impl,
+	instances::{Instance1, Instance2},
+	ord_parameter_types, parameter_types,
+	traits::{
+		tokens::{
+			fungible::{NativeFromLeft, NativeOrWithId, UnionOf},
+			imbalance::ResolveAssetTo,
 		},
-		PalletId,
+		AsEnsureOriginWithArg, ConstU128, ConstU32,
 	},
-	frame_system::{EnsureSigned, EnsureSignedBy},
-	pallet_assets, pallet_balances,
-	sp_arithmetic::Permill,
-	sp_core::ConstU64,
-	sp_io::TestExternalities,
-	sp_runtime::{
-		traits::{AccountIdConversion, IdentityLookup},
-		BuildStorage,
-	},
+	PalletId,
+};
+use frame_system::{EnsureSigned, EnsureSignedBy};
+use sp_arithmetic::Permill;
+use sp_core::ConstU64;
+use sp_runtime::{
+	traits::{AccountIdConversion, BlockNumber, IdentityLookup},
+	BuildStorage,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -179,7 +174,7 @@ impl Config for Test {
 	type BenchmarkHelper = ();
 }
 
-pub(crate) fn new_test_ext() -> TestExternalities {
+pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	pallet_balances::GenesisConfig::<Test> {
@@ -188,7 +183,7 @@ pub(crate) fn new_test_ext() -> TestExternalities {
 	.assimilate_storage(&mut t)
 	.unwrap();
 
-	let mut ext = TestExternalities::new(t);
+	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }

@@ -19,6 +19,19 @@ use crate::{
 	mock::{AccountId as MockAccountId, Balance as MockBalance, *},
 	*,
 };
+use frame_support::{
+	assert_noop, assert_ok, assert_storage_noop,
+	instances::Instance1,
+	traits::{
+		fungible,
+		fungible::{Inspect as FungibleInspect, NativeOrWithId},
+		fungibles,
+		fungibles::{Inspect, InspectEnumerable},
+		Get,
+	},
+};
+use sp_arithmetic::Permill;
+use sp_runtime::{DispatchError, TokenError};
 
 fn events() -> Vec<Event<Test>> {
 	let result = System::events()
