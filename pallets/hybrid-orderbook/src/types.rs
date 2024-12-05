@@ -624,6 +624,10 @@ pub mod traits {
         /// Maximum number of leaf nodes that can be stored in the tree.
         const CAPACITY: Self;
 
+        fn is_partition_index(&self) -> bool {
+            (*self) == Self::PARTITION_INDEX
+        }
+
         /// Calculate new mask.
         /// First, find the position(pos) of the most significant bit in the XOR of the two indexes.
         /// Then, right shift the mask by that position(e.g. 1 << pos).
@@ -842,4 +846,20 @@ pub mod traits {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OrderBookIndex;
+
+    #[test]
+    fn partition_index_works() {
+        let partition_index: u64 = 1 << (u64::BITS - 1);
+        assert!(partition_index.is_partition_index());
+        let not_partition_index: u64 = 1;
+        assert!(!not_partition_index.is_partition_index());
+    }
+
+    #[test]
+    fn new_mask_works() {}
 }

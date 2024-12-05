@@ -138,7 +138,7 @@ where
                 curr = internal_node.right;
             }
         }
-        if internal_node_parent_index == K::PARTITION_INDEX {
+        if internal_node_parent_index.is_partition_index() {
             // If the new internal node is the root
             self.root = new_internal_index;
         } else {
@@ -417,7 +417,7 @@ where
 
     /// Get the next index based on `NodeKind`, which maybe leaf or internal for the tree.
     fn next_index(&mut self, kind: NodeKind) -> Result<K, CritbitTreeError> {
-        match kind {
+        let index = match kind {
             NodeKind::Leaf => {
                 let index = self.next_leaf_node_index;
                 self.next_leaf_node_index += One::one();
@@ -425,7 +425,7 @@ where
                     self.next_leaf_node_index <= K::CAPACITY,
                     CritbitTreeError::ExceedCapacity
                 );
-                Ok(index)
+                index
             }
             NodeKind::Internal => {
                 let index = self.next_internal_node_index;
@@ -433,9 +433,10 @@ where
                     .next_internal_node_index
                     .checked_add(&One::one())
                     .ok_or(CritbitTreeError::Overflow)?;
-                Ok(index)
+                index
             }
-        }
+        };
+        Ok(index)
     }
 
     /// Update the tree reference which could be 'leaf' or 'internal' node.
