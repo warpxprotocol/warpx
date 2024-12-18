@@ -31,6 +31,8 @@ pub type AssetIdOf<T> =
 pub type AssetBalanceOf<T> =
     <<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
+type Orders<Q, A, B> = Vec<Order<Q, A, B>>;
+
 impl<T: Config, AssetId, AccountId, Balance> FrozenBalance<AssetId, AccountId, Balance>
     for Pallet<T>
 where
@@ -67,6 +69,42 @@ where
 )]
 pub struct OrderId(pub u64);
 
+impl OrderId {
+    fn start_bid_id() -> Self {
+        Self(0)
+    }
+
+    fn start_ask_id() -> Self {
+        Self(1 << u64::BITS - 1)
+    }
+
+    fn max_bid_id(&self) -> Self {
+        Self::start_ask_id()
+    }
+
+    fn max_ask_id(&self) -> Self {
+        Self(u64::MAX)
+    }
+
+    fn increase_by_one(&self) -> Option<Self> {
+        let is_bid = self.is_bid();
+        let max_index = if is_bid {
+            self.max_bid_id()
+        } else {
+            self.max_ask_id()
+        };
+        if self.eq(&(max_index - 1.into())) {
+            return None;
+        }
+        let new = Self(self.0 + 1);
+        Some(new)
+    }
+
+    fn is_bid(&self) -> bool {
+        self.0 & Self::start_ask_id().0 == 0
+    }
+}
+
 #[derive(Debug)]
 pub enum OrderIdError {
     Overflow,
@@ -78,35 +116,18 @@ impl OrderbookOrderId for OrderId {
 
     fn new(is_bid: bool) -> Self {
         if is_bid {
-            Self(0)
+            Self::start_ask_id()
         } else {
-            Self(1 << (u64::BITS - 1))
+            Self::start_bid_id()
         }
     }
 
     fn checked_increase(&self, is_bid: bool) -> Option<Self> {
-        let max_index = if is_bid {
-            1 << (u64::BITS - 1)
-        } else {
-            u64::MAX
-        };
-
-        let new = self.0.checked_add(1);
-        match new {
-            Some(new) => {
-                // Over max index
-                if new > max_index {
-                    return None;
-                }
-                Some(new.into())
-            }
-            // Overflow
-            None => None,
-        }
+        self.increase_by_one()
     }
 
     fn is_bid(&self) -> bool {
-        self.0 & (1 << (u64::BITS - 1)) == 0
+        self.is_bid()
     }
 }
 
@@ -305,7 +326,7 @@ impl<T: Config> Pool<T> {
         &self,
         owner: &T::AccountId,
         is_bid: bool,
-    ) -> Vec<Order<T::Unit, T::AccountId, BlockNumberFor<T>>> {
+    ) -> Orders<T::Unit, T::AccountId, BlockNumberFor<T>> {
         if is_bid {
             self.bids.get_orders(owner)
         } else {
@@ -569,14 +590,16 @@ pub mod traits {
         /// Type of error of orderbook
         type Error;
 
-        /// Create new instance
+        /// Create new instance of `Self`
         fn new() -> Self;
 
         /// Check if the orderbook is empty
         fn is_empty(&self) -> bool;
 
-        fn get_orders(&self, owner: &Account) -> Vec<Order<Unit, Account, BlockNumber>>;
+        /// Get all orders of given `owner`
+        fn get_orders(&self, owner: &Account) -> Orders<Unit, Account, BlockNumber>;
 
+        /// Try get all orders for given `key`
         fn open_orders_at(&self, key: Unit) -> Result<Option<Self::Order>, Self::Error>;
 
         /// Optionally return the minimum order of the orderbook which is (price, index).
@@ -673,7 +696,7 @@ pub mod traits {
             expired_at: BlockNumber,
         ) -> Self;
 
-        fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>>;
+        fn find_order_of(&self, owner: &Account) -> Option<Orders<Unit, Account, BlockNumber>>;
 
         fn orders(&self) -> Self;
 
@@ -742,13 +765,13 @@ pub mod traits {
         }
 
         // for test only
-        fn find_order_of(&self, owner: &Account) -> Option<Vec<Order<Unit, Account, BlockNumber>>> {
+        fn find_order_of(&self, owner: &Account) -> Option<Orders<Unit, Account, BlockNumber>> {
             let matched = self
                 .to_owned()
                 .open_orders
                 .into_values()
                 .filter(|o| o.owner() == *owner)
-                .collect::<Vec<Order<Unit, Account, BlockNumber>>>();
+                .collect::<Orders<Unit, Account, BlockNumber>>();
             if matched.is_empty() {
                 return None;
             } else {
@@ -854,7 +877,17 @@ pub mod traits {
 
 #[cfg(test)]
 mod tests {
-    use super::OrderBookIndex;
+    use super::{OrderBookIndex, OrderId};
+
+    #[test]
+    fn order_id_op_works() {
+        let order_id: OrderId = OrderId::start_bid_id();
+        assert!(order_id.is_bid());
+        let mut order_id: OrderId = OrderId::start_ask_id();
+        assert!(!order_id.is_bid());
+        order_id += 1;
+        assert!(order_id.is_bid());
+    }
 
     #[test]
     fn partition_index_works() {

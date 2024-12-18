@@ -6,7 +6,8 @@ use super::{Order as OrderUnit, *};
 pub struct CritbitTree<K, V> {
     /// Index of the root node which is part of the internal nodes.
     root: K,
-    /// The internal nodes of the tree.
+    /// The internal nodes of the tree
+    /// Here, `key` refers to `index` of `InternalNode.
     internal_nodes: BTreeMap<K, InternalNode<K>>,
     /// The leaf nodes of the tree.
     leaves: BTreeMap<K, LeafNode<K, V>>,
@@ -47,7 +48,7 @@ where
         }
     }
 
-    /// Check if the leaves are empty.
+    /// Check whether the leaf exists
     pub fn is_empty(&self) -> bool {
         self.leaves.is_empty()
     }
@@ -526,6 +527,9 @@ pub enum CritbitTreeError {
     ValueOps,
 }
 
+/// `InternalNode` for `critbit-tree` with `K` index. Here, `K` refer to two meaning.
+/// -  mask
+/// - path of the tree
 #[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct InternalNode<K> {
     /// Mask for branching the tree based on the critbit.
@@ -550,6 +554,11 @@ impl<K: OrderBookIndex> InternalNode<K> {
     }
 }
 
+/// Type of `LeafNode`
+///
+/// - `parent`: Index of the path of the tree
+/// - `key`: Value represents the node(e.g price)
+/// - `value`: Actual data stored on the node(e.g orders)
 #[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct LeafNode<K, V> {
     /// Parent index of the node.
@@ -561,7 +570,8 @@ pub struct LeafNode<K, V> {
 }
 
 impl<K: OrderBookIndex, V> LeafNode<K, V> {
-    /// Create new instance of the leaf node.
+    /// Create new instance of the leaf node with given `key` and `value`.
+    /// `parent` is initialized to `K::PARTITION_INDEX` which refer to the start index of the leaf node
     pub fn new(key: K, value: V) -> Self {
         LeafNode {
             parent: K::PARTITION_INDEX,
