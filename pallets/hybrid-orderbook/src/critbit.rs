@@ -440,6 +440,7 @@ where
     }
 
     /// Update the tree reference which could be 'leaf' or 'internal' node.
+    /// Both parent and child are tree index
     fn update_ref(
         &mut self,
         parent: K,
@@ -458,6 +459,7 @@ where
         }
         self.internal_nodes.insert(parent, internal_node);
         if child > K::PARTITION_INDEX {
+            // child is `leaf`
             let leaf_node_index = K::MAX_INDEX - child;
             let mut leaf_node = self
                 .leaves
@@ -467,12 +469,13 @@ where
             leaf_node.parent = parent;
             self.leaves.insert(leaf_node_index, leaf_node);
         } else {
+            // child is `internal_node`
             let mut internal_node = self
                 .internal_nodes
                 .get(&child)
                 .ok_or(CritbitTreeError::InternalNodeShouldExist)?
                 .clone();
-            internal_node.parent = parent.clone();
+            internal_node.parent = parent;
             self.internal_nodes.insert(child, internal_node);
         }
         Ok(())

@@ -626,14 +626,14 @@ pub mod pallet {
 				Preserve,
 			)?;
 
-			let total_supply = T::PoolAssets::total_issuance(pool.lp_token.clone());
+			let total_supply = T::PoolAssets::total_issuance(pool.lp_token());
 
 			let lp_token_amount: T::Unit;
 			if total_supply.is_zero() {
 				lp_token_amount =
 					Self::calc_lp_amount_for_zero_supply(&base_asset_amount, &quote_asset_amount)?;
 				T::PoolAssets::mint_into(
-					pool.lp_token.clone(),
+					pool.lp_token(),
 					&pool_account,
 					T::MintMinLiquidity::get(),
 				)?;
@@ -649,7 +649,7 @@ pub mod pallet {
 				Error::<T>::InsufficientLiquidityMinted
 			);
 
-			T::PoolAssets::mint_into(pool.lp_token.clone(), &mint_to, lp_token_amount)?;
+			T::PoolAssets::mint_into(pool.lp_token(), &mint_to, lp_token_amount)?;
 
 			Self::deposit_event(Event::LiquidityAdded {
 				who: sender,
@@ -657,7 +657,7 @@ pub mod pallet {
 				pool_id,
 				base_asset_provided: base_asset_amount,
 				quote_asset_provided: quote_asset_amount,
-				lp_token: pool.lp_token,
+				lp_token: pool.lp_token(),
 				lp_token_minted: lp_token_amount,
 			});
 
@@ -692,7 +692,7 @@ pub mod pallet {
 			let base_asset_reserve = Self::get_balance(&pool_account, &base_asset);
 			let quote_asset_reserve = Self::get_balance(&pool_account, &quote_asset);
 
-			let total_supply = T::PoolAssets::total_issuance(pool.lp_token.clone());
+			let total_supply = T::PoolAssets::total_issuance(pool.lp_token());
 			let withdrawal_fee_amount = T::LiquidityWithdrawalFee::get() * lp_token_burn;
 			let lp_redeem_amount = lp_token_burn.saturating_sub(withdrawal_fee_amount);
 
@@ -721,7 +721,7 @@ pub mod pallet {
 			);
 
 			// burn the provided lp token amount that includes the fee
-			T::PoolAssets::burn_from(pool.lp_token.clone(), &sender, lp_token_burn, Expendable, Exact, Polite)?;
+			T::PoolAssets::burn_from(pool.lp_token(), &sender, lp_token_burn, Expendable, Exact, Polite)?;
 
 			T::Assets::transfer(
 				*base_asset,
@@ -744,7 +744,7 @@ pub mod pallet {
 				pool_id,
 				base_asset_amount,
 				quote_asset_amount,
-				lp_token: pool.lp_token,
+				lp_token: pool.lp_token(),
 				lp_token_burned: lp_token_burn,
 				withdrawal_fee: T::LiquidityWithdrawalFee::get(),
 			});
@@ -787,8 +787,8 @@ pub mod pallet {
 				T::Assets::touch(*quote_asset, &pool_account, &who)?;
 				refunds_number += 1;
 			}
-			if T::PoolAssets::should_touch(pool.lp_token.clone(), &pool_account) {
-				T::PoolAssets::touch(pool.lp_token, &pool_account, &who)?;
+			if T::PoolAssets::should_touch(pool.lp_token(), &pool_account) {
+				T::PoolAssets::touch(pool.lp_token(), &pool_account, &who)?;
 				refunds_number += 1;
 			}
 			Self::deposit_event(Event::Touched { pool_id, who });

@@ -296,6 +296,10 @@ impl<T: Config> Pool<T> {
         }
     }
 
+    pub fn lp_token(&self) -> T::PoolAssetId {
+        self.lp_token.clone()
+    }
+
     // test only
     pub fn orders_for(
         &self,
