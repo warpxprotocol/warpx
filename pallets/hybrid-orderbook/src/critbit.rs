@@ -1,8 +1,9 @@
 use self::traits::{OrderBookIndex, OrderInterface};
 
 use super::{Order as OrderUnit, *};
+use codec::DecodeWithMemTracking;
 
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct CritbitTree<K, V> {
     /// Index of the root node which is part of the internal nodes.
     root: K,
@@ -66,7 +67,7 @@ where
             return Ok(None);
         }
         if let Some(leaf) = self.leaves.get(&self.max_leaf_index) {
-            Ok(Some((leaf.key.clone(), self.max_leaf_index)))
+            Ok(Some((leaf.key(), self.max_leaf_index)))
         } else {
             // For safety, should not reach here unless leaves are empty
             Err(CritbitTreeError::LeafNodeShouldExist)
@@ -81,7 +82,7 @@ where
             return Ok(None);
         }
         if let Some(leaf) = self.leaves.get(&self.min_leaf_index) {
-            Ok(Some((leaf.key.clone(), self.min_leaf_index)))
+            Ok(Some((leaf.key(), self.min_leaf_index)))
         } else {
             // For safety, should not reach here unless leaves are empty
             Err(CritbitTreeError::LeafNodeShouldExist)
@@ -355,6 +356,9 @@ where
     /// Should not return `Error` unless the tree is not empty.
     fn right_most_leaf(&self, root: K) -> Result<K, CritbitTreeError> {
         let mut curr = root.clone();
+        if curr == K::PARTITION_INDEX {
+            return Err(CritbitTreeError::NotInitialized);
+        }
         while curr < K::PARTITION_INDEX {
             let internal_node = self
                 .internal_nodes
@@ -525,12 +529,14 @@ pub enum CritbitTreeError {
     RemoveNotAllowed,
     /// Error on operations on valued
     ValueOps,
+    /// Error on `tree
+    NotInitialized,
 }
 
 /// `InternalNode` for `critbit-tree` with `K` index. Here, `K` refer to two meaning.
 /// -  mask
 /// - path of the tree
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct InternalNode<K> {
     /// Mask for branching the tree based on the critbit.
     mask: K,
@@ -559,7 +565,7 @@ impl<K: OrderBookIndex> InternalNode<K> {
 /// - `parent`: Index of the path of the tree
 /// - `key`: Value represents the node(e.g price)
 /// - `value`: Actual data stored on the node(e.g orders)
-#[derive(Encode, Decode, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
+#[derive(Encode, Decode, DecodeWithMemTracking, Debug, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct LeafNode<K, V> {
     /// Parent index of the node.
     parent: K,
@@ -570,6 +576,11 @@ pub struct LeafNode<K, V> {
 }
 
 impl<K: OrderBookIndex, V> LeafNode<K, V> {
+    /// Return clone of key of `self`
+    pub fn key(&self) -> K {
+        self.key.clone()
+    }
+
     /// Create new instance of the leaf node with given `key` and `value`.
     /// `parent` is initialized to `K::PARTITION_INDEX` which refer to the start index of the leaf node
     pub fn new(key: K, value: V) -> Self {

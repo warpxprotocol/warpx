@@ -16,7 +16,7 @@
 // limitations under the License.
 
 use super::*;
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use core::{marker::PhantomData, ops::BitAnd};
 use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
@@ -33,28 +33,10 @@ pub type AssetBalanceOf<T> =
 
 type Orders<Q, A, B> = Vec<Order<Q, A, B>>;
 
-impl<T: Config, AssetId, AccountId, Balance> FrozenBalance<AssetId, AccountId, Balance>
-    for Pallet<T>
-where
-    AssetId: Into<T::AssetKind>,
-    AccountId: Into<T::AccountId> + Clone,
-    Balance: From<T::Unit>,
-{
-    fn frozen_balance(asset: AssetId, who: &AccountId) -> Option<Balance> {
-        let _who: T::AccountId = who.clone().into();
-        let _asset: T::AssetKind = asset.into();
-        if let Some(frozen) = FrozenAssets::<T>::get(_who, _asset) {
-            return Some(frozen.into());
-        }
-        None
-    }
-
-    fn died(_asset: AssetId, _who: &AccountId) {}
-}
-
 /// Order id of _hybrid orderbook_ which wrapped `u64`
 #[derive(
     Decode,
+    DecodeWithMemTracking,
     Encode,
     Debug,
     Copy,
@@ -232,7 +214,18 @@ pub struct PoolInfo<PoolAssetId> {
 }
 
 /// Value of Orderbook. All orders for the `Tick` level stored.
-#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, PartialOrd, RuntimeDebug, TypeInfo)]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Default,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    RuntimeDebug,
+    TypeInfo,
+)]
 pub struct Tick<Quantity, Account, BlockNumber> {
     /// All open orders for this `Tick` level. Stored on `BTreeMap`, where key is `OrderId` and the
     /// value is `Order`.
@@ -254,7 +247,18 @@ impl<Quantity, Account: Clone, BlockNumber> Tick<Quantity, Account, BlockNumber>
 }
 
 /// The order of the orderbook.
-#[derive(Encode, Decode, Default, Clone, PartialEq, Eq, PartialOrd, RuntimeDebug, TypeInfo)]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Default,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    RuntimeDebug,
+    TypeInfo,
+)]
 pub struct Order<Quantity, Account, BlockNumber> {
     quantity: Quantity,
     owner: Account,

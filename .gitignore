@@ -11,3 +11,5 @@
 .direnv
 
 zombienet
+zombienet-macos
+zombienet.toml

@@ -26,7 +26,7 @@
 mod xcm_config;
 
 // Substrate and Polkadot dependencies
-use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
+use cumulus_pallet_parachain_system::{DefaultCoreSelector, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::{AggregateMessageOrigin, ParaId};
 use frame_support::{
     derive_impl,
@@ -58,18 +58,14 @@ use sp_runtime::{traits::AccountIdConversion, Perbill, Permill};
 use sp_version::RuntimeVersion;
 use xcm::latest::prelude::BodyId;
 
-use crate::MILLIUNIT;
-
 // Local module imports
 use super::{
-    alloc::vec,
-    weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight},
-    AccountId, AssetId, Assets, Aura, Balance, Balances, Block, BlockNumber, CollatorSelection,
-    ConsensusHook, Hash, HybridOrderbook, MessageQueue, Nonce, PalletInfo, ParachainSystem,
-    PoolAssets, Runtime, RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason,
-    RuntimeOrigin, RuntimeTask, Session, SessionKeys, System, WeightToFee, XcmpQueue,
-    AVERAGE_ON_INITIALIZE_RATIO, DAYS, EXISTENTIAL_DEPOSIT, HOURS, MAXIMUM_BLOCK_WEIGHT, MICROUNIT,
-    NORMAL_DISPATCH_RATIO, SLOT_DURATION, VERSION,
+    alloc::vec, weights, AccountId, AssetId, Assets, AssetsFreezer, Aura, Balance, Balances, Block,
+    BlockNumber, CollatorSelection, ConsensusHook, Hash, HybridOrderbook, MessageQueue, Nonce,
+    PalletInfo, ParachainSystem, PoolAssets, Runtime, RuntimeCall, RuntimeEvent,
+    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Session, SessionKeys,
+    System, WeightToFee, XcmpQueue, AVERAGE_ON_INITIALIZE_RATIO, DAYS, EXISTENTIAL_DEPOSIT, HOURS,
+    MAXIMUM_BLOCK_WEIGHT, MICROUNIT, MILLIUNIT, NORMAL_DISPATCH_RATIO, SLOT_DURATION, VERSION,
 };
 use xcm_config::{RelayLocation, XcmOriginToTransactDispatchOrigin};
 
@@ -83,9 +79,9 @@ parameter_types! {
     pub RuntimeBlockLength: BlockLength =
         BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
     pub RuntimeBlockWeights: BlockWeights = BlockWeights::builder()
-        .base_block(BlockExecutionWeight::get())
+        .base_block(weights::BlockExecutionWeight::get())
         .for_class(DispatchClass::all(), |weights| {
-            weights.base_extrinsic = ExtrinsicBaseWeight::get();
+            weights.base_extrinsic = weights::ExtrinsicBaseWeight::get();
         })
         .for_class(DispatchClass::Normal, |weights| {
             weights.max_total = Some(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
@@ -123,7 +119,7 @@ impl frame_system::Config for Runtime {
     /// The data to be stored in an account.
     type AccountData = pallet_balances::AccountData<Balance>;
     /// The weight of database operations that the runtime can invoke.
-    type DbWeight = RocksDbWeight;
+    type DbWeight = weights::RocksDbWeight;
     /// Block & extrinsics weights: base values and limits.
     type BlockWeights = RuntimeBlockWeights;
     /// The maximum length of a block (in bytes).
@@ -168,6 +164,7 @@ impl pallet_balances::Config for Runtime {
     type RuntimeFreezeReason = RuntimeFreezeReason;
     type FreezeIdentifier = RuntimeFreezeReason;
     type MaxFreezes = VariantCountOf<RuntimeFreezeReason>;
+    type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -182,6 +179,7 @@ impl pallet_transaction_payment::Config for Runtime {
     type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
     type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
     type OperationalFeeMultiplier = ConstU8<5>;
+    type WeightInfo = weights::pallet_transaction_payment::WeightInfo<Runtime>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -208,6 +206,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
     type ReservedXcmpWeight = ReservedXcmpWeight;
     type CheckAssociatedRelayNumber = RelayNumberMonotonicallyIncreases;
     type ConsensusHook = ConsensusHook;
+    type SelectCore = DefaultCoreSelector<Runtime>;
 }
 
 impl parachain_info::Config for Runtime {}
@@ -272,6 +271,7 @@ impl pallet_session::Config for Runtime {
     // Essentially just Aura, but let's be pedantic.
     type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
     type Keys = SessionKeys;
+    type DisablingStrategy = ();
     type WeightInfo = ();
 }
 
@@ -335,7 +335,8 @@ impl pallet_assets::Config<Instance1> for Runtime {
     type MetadataDepositPerByte = MetadataDepositPerByte;
     type ApprovalDeposit = ApprovalDeposit;
     type StringLimit = StringLimit;
-    type Freezer = HybridOrderbook;
+    type Holder = ();
+    type Freezer = AssetsFreezer;
     type Extra = ();
     type CallbackHandle = ();
     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
@@ -358,6 +359,7 @@ impl pallet_assets::Config<Instance2> for Runtime {
     type MetadataDepositPerByte = MetadataDepositPerByte;
     type ApprovalDeposit = ApprovalDeposit;
     type StringLimit = StringLimit;
+    type Holder = ();
     type Freezer = ();
     type Extra = ();
     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
@@ -365,6 +367,11 @@ impl pallet_assets::Config<Instance2> for Runtime {
     type CallbackHandle = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
+}
+
+impl pallet_assets_freezer::Config<Instance1> for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
 parameter_types! {
@@ -380,17 +387,24 @@ ord_parameter_types! {
     pub const OrderExpiration: BlockNumber = DAYS;
 }
 
+pub type NativeAndAssets =
+    UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
+pub type NativeAndAssetsFreezer =
+    UnionOf<Balances, AssetsFreezer, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
+
 impl pallet_hybrid_orderbook::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Unit = Balance;
     type HigherPrecisionUnit = u128;
     type AssetKind = NativeOrWithId<u32>;
-    type Assets = UnionOf<Balances, Assets, NativeFromLeft, NativeOrWithId<u32>, AccountId>;
+    type Assets = NativeAndAssets;
+    type AssetsFreezer = NativeAndAssetsFreezer;
     type OrderBook = CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>;
     type PoolId = (Self::AssetKind, Self::AssetKind);
     type PoolLocator = BaseQuoteAsset<AccountId, NativeOrWithId<u32>>;
     type PoolAssetId = <Self as pallet_assets::Config<Instance2>>::AssetId;
     type PoolAssets = PoolAssets;
+    type RuntimeFreezeReason = RuntimeFreezeReason;
     type PoolSetupFee = PoolSetupFee;
     type PoolSetupFeeAsset = Native;
     type PoolSetupFeeTarget = ResolveAssetTo<HybridOrderBookOrigin, Self::Assets>;
