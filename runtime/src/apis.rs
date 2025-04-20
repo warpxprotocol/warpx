@@ -27,6 +27,7 @@
 use alloc::vec::Vec;
 use frame_support::{
     genesis_builder_helper::{build_state, get_preset},
+    traits::fungible::NativeOrWithId,
     weights::Weight,
 };
 use pallet_aura::Authorities;
@@ -42,9 +43,9 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-    AccountId, Balance, Block, ConsensusHook, Executive, InherentDataExt, Nonce, ParachainSystem,
-    Runtime, RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment,
-    SLOT_DURATION, VERSION,
+    AccountId, Balance, Block, ConsensusHook, Executive, HybridOrderbook, InherentDataExt, Nonce,
+    ParachainSystem, Runtime, RuntimeCall, RuntimeGenesisConfig, SessionKeys, System,
+    TransactionPayment, SLOT_DURATION, VERSION,
 };
 
 // we move some impls outside so we can easily use them with `docify`.
@@ -207,6 +208,24 @@ impl_runtime_apis! {
         }
         fn query_length_to_fee(length: u32) -> Balance {
             TransactionPayment::length_to_fee(length)
+        }
+    }
+
+    impl pallet_hybrid_orderbook::HybridOrderbookApi<Block, Balance, NativeOrWithId<u32>> for Runtime {
+        fn quote_price_exact_tokens_for_tokens(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>, amount: Balance, include_fee: bool) -> Option<Balance> {
+            HybridOrderbook::quote_price_exact_tokens_for_tokens(asset1, asset2, amount, include_fee)
+        }
+
+        fn quote_price_tokens_for_exact_tokens(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>, amount: Balance, include_fee: bool) -> Option<Balance> {
+            HybridOrderbook::quote_price_tokens_for_exact_tokens(asset1, asset2, amount, include_fee)
+        }
+
+        fn get_reserves(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>) -> Option<(Balance, Balance)> {
+            HybridOrderbook::get_reserves(&asset1, &asset2).ok()
+        }
+
+        fn get_pool_price(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<Balance> {
+            HybridOrderbook::pool_price(&base, &quote).ok()
         }
     }
 

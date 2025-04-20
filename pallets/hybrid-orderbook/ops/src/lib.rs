@@ -156,6 +156,7 @@ pub mod pallet {
             let pool_id = T::PoolLocator::pool_id(&asset1, &asset2)
                 .map_err(|_| Error::<T>::InvalidAssetPair)?;
             let info = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
+            let metadata = PoolMetadata::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
 
             let (prior_account, new_account) =
                 Self::addresses(&pool_id).ok_or(Error::<T>::InvalidAssetPair)?;
@@ -165,7 +166,7 @@ pub mod pallet {
             // Assets that must be transferred to the new account id.
             let balance1 = T::Assets::total_balance(asset1.clone(), &prior_account);
             let balance2 = T::Assets::total_balance(asset2.clone(), &prior_account);
-            let lp_balance = T::PoolAssets::total_balance(info.lp_token(), &prior_account);
+            let lp_balance = T::PoolAssets::total_balance(metadata.lp_token(), &prior_account);
 
             ensure!(!balance1.is_zero(), Error::<T>::ZeroBalance);
             ensure!(!balance2.is_zero(), Error::<T>::ZeroBalance);

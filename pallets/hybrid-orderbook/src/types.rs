@@ -98,13 +98,13 @@ impl OrderbookOrderId for OrderId {
 
     fn new(is_bid: bool) -> Self {
         if is_bid {
-            Self::start_ask_id()
-        } else {
             Self::start_bid_id()
+        } else {
+            Self::start_ask_id()
         }
     }
 
-    fn checked_increase(&self, is_bid: bool) -> Option<Self> {
+    fn checked_increase(&self) -> Option<Self> {
         self.increase_by_one()
     }
 
@@ -188,7 +188,7 @@ pub trait OrderbookOrderId:
     /// Create new instance of `OrderId`
     fn new(is_bid: bool) -> Self;
     /// Increase `OrderId` by 1. Return `None`, if overflow
-    fn checked_increase(&self, is_bid: bool) -> Option<Self>;
+    fn checked_increase(&self) -> Option<Self>;
     /// Check whether it is id of `bid` order
     fn is_bid(&self) -> bool;
 }
@@ -283,7 +283,7 @@ impl<Quantity, Account: Clone, BlockNumber> Order<Quantity, Account, BlockNumber
 #[derive(Encode, Decode, Default, Debug, Clone, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct Pool<T: Config> {
-    /// Liquidity pool asset
+    /// Id of lp token
     pub lp_token: T::PoolAssetId,
     /// The orderbook of the bid.
     pub bids: T::OrderBook,
@@ -340,13 +340,13 @@ impl<T: Config> Pool<T> {
 
     pub fn next_bid_order_id(&mut self) -> Result<OrderId, Error<T>> {
         let next = self.next_bid_order_id.clone();
-        self.next_bid_order_id = next.checked_increase(true).ok_or(Error::<T>::Overflow)?;
+        self.next_bid_order_id = next.checked_increase().ok_or(Error::<T>::Overflow)?;
         Ok(next)
     }
 
     pub fn next_ask_order_id(&mut self) -> Result<OrderId, Error<T>> {
         let next = self.next_ask_order_id.clone();
-        self.next_ask_order_id = next.checked_increase(false).ok_or(Error::<T>::Overflow)?;
+        self.next_ask_order_id = next.checked_increase().ok_or(Error::<T>::Overflow)?;
         Ok(next)
     }
 

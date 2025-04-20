@@ -237,18 +237,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type NextPoolAssetId<T: Config> = StorageValue<_, T::PoolAssetId, OptionQuery>;
 
-    /// Stores the `Hold` assets for limit order
-    #[pallet::storage]
-    pub type FrozenAssets<T: Config> = StorageDoubleMap<
-        _,
-        Twox64Concat,
-        T::AccountId,
-        Twox64Concat,
-        T::AssetKind,
-        T::Unit,
-        OptionQuery,
-    >;
-
     // Pallet's events.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -530,9 +518,10 @@ pub mod pallet {
                 T::PoolAssets::touch(lp_token.clone(), &pool_account, &sender)?
             };
 
-            let pool = Pool::<T>::new(lp_token.clone(), taker_fee_rate, tick_size, lot_size);
-            Pools::<T>::insert(pool_id.clone(), pool);
-
+            Pools::<T>::insert(
+                pool_id.clone(),
+                Pool::<T>::new(lp_token.clone(), taker_fee_rate, tick_size, lot_size),
+            );
             Self::deposit_event(Event::PoolCreated {
                 creator: sender,
                 pool_id,
@@ -942,15 +931,11 @@ pub mod pallet {
                 // quote asset would be released.
                 let released = if is_bid { q } else { p * q };
                 // 1. Release the frozen asset
-                FrozenAssets::<T>::try_mutate(
-                    &owner,
+                T::AssetsFreezer::decrease_frozen(
                     asset1.clone(),
-                    |maybe_balance| -> DispatchResult {
-                        let mut new = maybe_balance.take().ok_or(Error::<T>::NoOps)?;
-                        new = new.saturating_sub(released);
-                        *maybe_balance = Some(new);
-                        Ok(())
-                    },
+                    &FreezeReason::LimitOrder.into(),
+                    &owner,
+                    released,
                 )?;
                 // 2. Transfer assets between orderer and owner of limit order
                 let (transfer1, transfer2) = if is_bid { (q, released) } else { (released, q) };
@@ -1294,7 +1279,7 @@ pub mod pallet {
         /// Pool price
         ///
         /// 1 * quote_reserve / base_reserve
-        pub(crate) fn pool_price(
+        pub fn pool_price(
             base_asset: &T::AssetKind,
             quote_asset: &T::AssetKind,
         ) -> Result<T::Unit, Error<T>> {
@@ -2002,7 +1987,7 @@ pub mod pallet {
 sp_api::decl_runtime_apis! {
     /// This runtime api allows people to query the size of the liquidity pools
     /// and quote prices for swaps.
-    pub trait AssetConversionApi<Balance, AssetId>
+    pub trait HybridOrderbookApi<Balance, AssetId>
     where
         Balance: frame_support::traits::tokens::Balance + MaybeDisplay,
         AssetId: Codec,
@@ -2031,6 +2016,9 @@ sp_api::decl_runtime_apis! {
 
         /// Returns the size of the liquidity pool for the given asset pair.
         fn get_reserves(asset1: AssetId, asset2: AssetId) -> Option<(Balance, Balance)>;
+
+        /// Returns the price of the given asset pair.
+        fn get_pool_price(base: AssetId, quote: AssetId) -> Option<Balance>;
     }
 }
 
