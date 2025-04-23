@@ -299,6 +299,10 @@ pub struct Pool<T: Config> {
     pub tick_size: T::Unit,
     /// The minimum amount of the order.
     pub lot_size: T::Unit,
+    /// For decimal normalization of base asset
+    pub base_adjustment: u8,
+    /// For decimal normalization of quote asset
+    pub quote_adjustment: u8,
 }
 
 impl<T: Config> Pool<T> {
@@ -308,6 +312,8 @@ impl<T: Config> Pool<T> {
         taker_fee_rate: Permill,
         tick_size: T::Unit,
         lot_size: T::Unit,
+        base_adjustment: u8,
+        quote_adjustment: u8,
     ) -> Self {
         Self {
             lp_token,
@@ -318,6 +324,8 @@ impl<T: Config> Pool<T> {
             taker_fee_rate,
             tick_size,
             lot_size,
+            base_adjustment,
+            quote_adjustment,
         }
     }
 
@@ -876,6 +884,17 @@ pub mod traits {
                 return Err(OrderError::OrderNotExist);
             }
         }
+    }
+}
+
+pub trait Normalize {
+    fn normalize(&self, adjustment: u8) -> Self;
+}
+
+impl<T: AtLeast32BitUnsigned + From<u64>> Normalize for T {
+    fn normalize(&self, adjustment: u8) -> Self {
+        let factor: T = 10u64.pow(adjustment as u32).into();
+        self.clone() * factor
     }
 }
 
