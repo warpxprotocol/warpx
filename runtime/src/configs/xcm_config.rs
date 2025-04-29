@@ -1,12 +1,12 @@
 use crate::{
-    AccountId, AllPalletsWithSystem, Balance, Balances, ParachainInfo, ParachainSystem,
+    AccountId, AllPalletsWithSystem, Balances, ParachainInfo, ParachainSystem,
     PolkadotXcm, Runtime, RuntimeCall, RuntimeEvent, RuntimeHoldReason, RuntimeOrigin, WeightToFee,
     XcmpQueue,
 };
 use frame_support::{
     parameter_types,
     traits::{
-        fungible::HoldConsideration, ConstU32, Contains, Disabled, Everything, LinearStoragePrice,
+        ConstU32, Contains, Disabled, Everything,
         Nothing,
     },
     weights::Weight,

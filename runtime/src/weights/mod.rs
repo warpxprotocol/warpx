@@ -20,6 +20,8 @@
 pub mod block_weights;
 pub mod extrinsic_weights;
 pub mod pallet_transaction_payment;
+pub mod pallet_utility;
+pub mod cumulus_pallet_weight_reclaim;
 pub mod paritydb_weights;
 pub mod rocksdb_weights;
 

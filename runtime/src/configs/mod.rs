@@ -46,14 +46,14 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot, EnsureSigned, EnsureSignedBy,
 };
-use pallet_hybrid_orderbook::{Ascending, BaseQuoteAsset, CritbitTree, Tick};
+use pallet_hybrid_orderbook::{BaseQuoteAsset, CritbitTree, Tick};
 use pallet_xcm::{EnsureXcm, IsVoiceOfBody};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::{
     xcm_sender::NoPriceForMessageDelivery, BlockHashCount, SlowAdjustingFeeUpdate,
 };
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::ConstU128;
+use sp_core::{ConstU128, U256};
 use sp_runtime::{traits::AccountIdConversion, Perbill, Permill};
 use sp_version::RuntimeVersion;
 use xcm::latest::prelude::BodyId;
@@ -61,8 +61,8 @@ use xcm::latest::prelude::BodyId;
 // Local module imports
 use super::{
     alloc::vec, weights, AccountId, AssetId, Assets, AssetsFreezer, Aura, Balance, Balances, Block,
-    BlockNumber, CollatorSelection, ConsensusHook, Hash, HybridOrderbook, MessageQueue, Nonce,
-    PalletInfo, ParachainSystem, PoolAssets, Runtime, RuntimeCall, RuntimeEvent,
+    BlockNumber, CollatorSelection, ConsensusHook, Hash, MessageQueue, Nonce,
+    PalletInfo, ParachainSystem, PoolAssets, Runtime, RuntimeCall, RuntimeEvent, OriginCaller,
     RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Session, SessionKeys,
     System, WeightToFee, XcmpQueue, AVERAGE_ON_INITIALIZE_RATIO, DAYS, EXISTENTIAL_DEPOSIT, HOURS,
     MAXIMUM_BLOCK_WEIGHT, MICROUNIT, MILLIUNIT, NORMAL_DISPATCH_RATIO, SLOT_DURATION, VERSION,
@@ -131,6 +131,10 @@ impl frame_system::Config for Runtime {
     type MaxConsumers = frame_support::traits::ConstU32<16>;
 }
 
+impl cumulus_pallet_weight_reclaim::Config for Runtime {
+	type WeightInfo = weights::cumulus_pallet_weight_reclaim::WeightInfo<Runtime>;
+}
+
 impl pallet_timestamp::Config for Runtime {
     /// A timestamp: milliseconds since the unix epoch.
     type Moment = u64;
@@ -180,6 +184,13 @@ impl pallet_transaction_payment::Config for Runtime {
     type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
     type OperationalFeeMultiplier = ConstU8<5>;
     type WeightInfo = weights::pallet_transaction_payment::WeightInfo<Runtime>;
+}
+
+impl pallet_utility::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type PalletsOrigin = OriginCaller;
+	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -385,6 +396,9 @@ parameter_types! {
 ord_parameter_types! {
     pub const HybridOrderBookOrigin: AccountId = AccountIdConversion::<AccountId>::into_account_truncating(&HybridOrderBookPalletId::get());
     pub const OrderExpiration: BlockNumber = DAYS;
+    pub const LPFee: u32 = 3;
+    pub const StandardDecimals: u8 = 18;
+    pub const MaxSwapPathLength: u32 = 4;
 }
 
 pub type NativeAndAssets =
@@ -395,7 +409,7 @@ pub type NativeAndAssetsFreezer =
 impl pallet_hybrid_orderbook::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Unit = Balance;
-    type HigherPrecisionUnit = u128;
+    type HigherPrecisionUnit = U256;
     type AssetKind = NativeOrWithId<u32>;
     type Assets = NativeAndAssets;
     type AssetsFreezer = NativeAndAssetsFreezer;
@@ -410,10 +424,11 @@ impl pallet_hybrid_orderbook::Config for Runtime {
     type PoolSetupFeeTarget = ResolveAssetTo<HybridOrderBookOrigin, Self::Assets>;
     type PalletId = HybridOrderBookPalletId;
     type OrderExpiration = OrderExpiration;
-    type LPFee = ConstU32<3>; // means 0.3%
+    type LPFee = LPFee; // means 0.3%
+    type StandardDecimals = StandardDecimals;
     type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
     type WeightInfo = pallet_hybrid_orderbook::weights::SubstrateWeight<Runtime>;
-    type MaxSwapPathLength = ConstU32<4>;
+    type MaxSwapPathLength = MaxSwapPathLength;
     type MintMinLiquidity = MintMinLiquidity;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();

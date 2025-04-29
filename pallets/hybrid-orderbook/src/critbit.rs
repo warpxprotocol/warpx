@@ -607,6 +607,10 @@ where
         CritbitTree::new()
     }
 
+    fn size(&self) -> usize {
+        self.size()
+    }
+
     fn is_empty(&self) -> bool {
         self.is_empty()
     }

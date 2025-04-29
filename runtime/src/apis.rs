@@ -40,12 +40,13 @@ use sp_runtime::{
     ApplyExtrinsicResult,
 };
 use sp_version::RuntimeVersion;
+use pallet_hybrid_orderbook::{CritbitTree, PoolQuery, Tick};
 
 // Local module imports
 use super::{
     AccountId, Balance, Block, ConsensusHook, Executive, HybridOrderbook, InherentDataExt, Nonce,
     ParachainSystem, Runtime, RuntimeCall, RuntimeGenesisConfig, SessionKeys, System,
-    TransactionPayment, SLOT_DURATION, VERSION,
+    TransactionPayment, SLOT_DURATION, VERSION, BlockNumber
 };
 
 // we move some impls outside so we can easily use them with `docify`.
@@ -211,7 +212,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl pallet_hybrid_orderbook::HybridOrderbookApi<Block, Balance, NativeOrWithId<u32>> for Runtime {
+    impl pallet_hybrid_orderbook::HybridOrderbookApi<Block, Balance, NativeOrWithId<u32>, CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>> for Runtime {
         fn quote_price_exact_tokens_for_tokens(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>, amount: Balance, include_fee: bool) -> Option<Balance> {
             HybridOrderbook::quote_price_exact_tokens_for_tokens(asset1, asset2, amount, include_fee)
         }
@@ -224,8 +225,12 @@ impl_runtime_apis! {
             HybridOrderbook::get_reserves(&asset1, &asset2).ok()
         }
 
-        fn get_pool_price(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<Balance> {
-            HybridOrderbook::pool_price(&base, &quote).ok()
+        fn get_pool_price(base: NativeOrWithId<u32>, pool_decimals: Option<u8>, base_decimal_diff: Option<u8>, quote: NativeOrWithId<u32>, quote_decimal_diff: Option<u8>) -> Option<Balance> {
+            HybridOrderbook::pool_price(&base, pool_decimals, base_decimal_diff, &quote, quote_decimal_diff).ok()
+        }
+
+        fn get_pool_query(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<PoolQuery<CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>, Balance>> {
+            HybridOrderbook::get_pool_query(&base, &quote).ok()
         }
     }
 

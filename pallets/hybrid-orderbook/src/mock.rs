@@ -35,7 +35,7 @@ use frame_support::{
 };
 use frame_system::{EnsureSigned, EnsureSignedBy};
 use sp_arithmetic::Permill;
-use sp_core::ConstU64;
+use sp_core::{ConstU64, ConstU8};
 use sp_runtime::{
     traits::{AccountIdConversion, IdentityLookup},
     BuildStorage,
@@ -181,6 +181,7 @@ impl Config for Test {
     type WeightInfo = ();
     type LPFee = ConstU32<3>; // means 0.3%
     type LiquidityWithdrawalFee = LiquidityWithdrawalFee;
+    type StandardDecimals = ConstU8<10>;
     type MaxSwapPathLength = ConstU32<4>;
     type MintMinLiquidity = ConstU64<100>; // 100 is good enough when the main currency has 12 decimals.
     #[cfg(feature = "runtime-benchmarks")]

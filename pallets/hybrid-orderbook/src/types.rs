@@ -279,6 +279,17 @@ impl<Quantity, Account: Clone, BlockNumber> Order<Quantity, Account, BlockNumber
     }
 }
 
+#[derive(Encode, Decode, Default, Debug, Clone, PartialEq, TypeInfo)]
+pub struct PoolQuery<Orderbook, Unit> {
+    bids: Orderbook,
+    asks: Orderbook,
+    taker_fee_rate: Permill,
+    pool_decimals: u8,
+    base_reserve: Unit,
+    quote_reserve: Unit,
+    pool_price: Unit,
+}
+
 /// Detail of the pool
 #[derive(Encode, Decode, Default, Debug, Clone, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
@@ -286,23 +297,25 @@ pub struct Pool<T: Config> {
     /// Id of lp token
     pub lp_token: T::PoolAssetId,
     /// The orderbook of the bid.
-    pub bids: T::OrderBook,
+    bids: T::OrderBook,
     /// The orderbook of the ask.
-    pub asks: T::OrderBook,
+    asks: T::OrderBook,
     /// The next order id of the bid. Starts from `0`d
     pub next_bid_order_id: OrderId,
     /// The next order id of the ask. Starts from (1 << BITS::63 - 1)
     pub next_ask_order_id: OrderId,
     /// The fee rate of the taker.
     pub taker_fee_rate: Permill,
-    /// The size of each tick.
+    /// The size of each tick based on the quote asset. Tick size woule be based on the `pool_decimals`
     pub tick_size: T::Unit,
-    /// The minimum amount of the order.
-    pub lot_size: T::Unit,
+    /// The minimum amount of the order. Decimal is same as `base` asset
+    pub lot_size: T::Unit, 
+    /// The decimals of the pool price 
+    pub pool_decimals: Option<u8>,
     /// For decimal normalization of base asset
-    pub base_adjustment: u8,
+    pub base_adjustment: Option<u8>,
     /// For decimal normalization of quote asset
-    pub quote_adjustment: u8,
+    pub quote_adjustment: Option<u8>,
 }
 
 impl<T: Config> Pool<T> {
@@ -312,9 +325,15 @@ impl<T: Config> Pool<T> {
         taker_fee_rate: Permill,
         tick_size: T::Unit,
         lot_size: T::Unit,
-        base_adjustment: u8,
-        quote_adjustment: u8,
+        pool_decimals: u8,
+        base_adjustment: Option<u8>,
+        quote_adjustment: Option<u8>,
     ) -> Self {
+        let pool_decimals = if pool_decimals == 0u8 {
+            None
+        } else {
+            Some(pool_decimals)
+        };
         Self {
             lp_token,
             bids: T::OrderBook::new(),
@@ -324,9 +343,48 @@ impl<T: Config> Pool<T> {
             taker_fee_rate,
             tick_size,
             lot_size,
+            pool_decimals,
             base_adjustment,
             quote_adjustment,
         }
+    }
+
+    pub fn to_pool_query(self, base_reserve: T::Unit, quote_reserve: T::Unit, pool_price: T::Unit) -> PoolQuery<T::OrderBook, T::Unit> {
+        PoolQuery {
+            bids: self.bids,
+            asks: self.asks,
+            taker_fee_rate: self.taker_fee_rate,
+            pool_decimals: self.pool_decimals.unwrap_or(0),
+            base_reserve,
+            quote_reserve,
+            pool_price,
+        }
+    }
+
+    pub fn get_orderbook(&self, is_bid: bool) -> &T::OrderBook {
+        if is_bid {
+            &self.bids
+        } else {
+            &self.asks
+        }
+    }
+
+    pub fn orderbook_size(&self, is_bid: bool) -> usize {
+        if is_bid {
+            self.bids.size()
+        } else {
+            self.asks.size()
+        }
+    }
+
+    /// Order price should be greater than 0 and a multiple of `tick_size`
+    pub fn is_valid_order_price(&self, price: T::Unit) -> bool {
+        price > Zero::zero() && price % self.tick_size == Zero::zero()
+    }
+
+    /// Order quantity should be equal or greater than `lot_size` and a multiple of `lot_size`
+    pub fn is_valid_order_quantity(&self, quantity: T::Unit) -> bool {
+        quantity >= self.lot_size && quantity % self.lot_size == Zero::zero()
     }
 
     pub fn lp_token(&self) -> T::PoolAssetId {
@@ -476,7 +534,7 @@ pub struct BaseQuoteAsset<AccountId, AssetKind>(PhantomData<(AccountId, AssetKin
 impl<AccountId, AssetKind> PoolLocator<AccountId, AssetKind, (AssetKind, AssetKind)>
     for BaseQuoteAsset<AccountId, AssetKind>
 where
-    AssetKind: Eq + Clone + Encode,
+    AssetKind: Eq + Ord + Clone + Encode,
     AccountId: Decode,
 {
     fn pool_id(
@@ -604,6 +662,8 @@ pub mod traits {
 
         /// Create new instance of `Self`
         fn new() -> Self;
+
+        fn size(&self) -> usize;
 
         /// Check if the orderbook is empty
         fn is_empty(&self) -> bool;
@@ -888,12 +948,12 @@ pub mod traits {
 }
 
 pub trait Normalize {
-    fn normalize(&self, adjustment: u8) -> Self;
+    fn normalize(&self, adjustment: Option<u8>) -> Self;
 }
 
 impl<T: AtLeast32BitUnsigned + From<u64>> Normalize for T {
-    fn normalize(&self, adjustment: u8) -> Self {
-        let factor: T = 10u64.pow(adjustment as u32).into();
+    fn normalize(&self, adjustment: Option<u8>) -> Self {
+        let factor: T = 10u64.pow(adjustment.map_or(0, |d| d as u32)).into();
         self.clone() * factor
     }
 }

@@ -1,5 +1,5 @@
 [relaychain]
-default_command = "../blockchain-stuff/polkadot-sdk-2503/target/release/polkadot"
+default_command = "../polkadot/polkadot-sdk/target/release/polkadot"
 chain = "rococo-local"
 
 [[relaychain.nodes]]
