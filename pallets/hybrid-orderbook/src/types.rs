@@ -949,12 +949,19 @@ pub mod traits {
 
 pub trait Normalize {
     fn normalize(&self, adjustment: Option<u8>) -> Self;
+
+    fn denom(&self, adjustment: u8) -> Self;
 }
 
 impl<T: AtLeast32BitUnsigned + From<u64>> Normalize for T {
     fn normalize(&self, adjustment: Option<u8>) -> Self {
         let factor: T = 10u64.pow(adjustment.map_or(0, |d| d as u32)).into();
         self.clone() * factor
+    }
+
+    fn denom(&self, adjustment: u8) -> Self {
+        let factor: T = 10u64.pow(adjustment as u32).into();
+        self.clone() / factor
     }
 }
 

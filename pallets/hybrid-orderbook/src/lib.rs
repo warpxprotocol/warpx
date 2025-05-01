@@ -513,9 +513,9 @@ pub mod pallet {
             let mut base_decimals_adjustment = None;
             let mut quote_decimals_adjustment = None;
             if base_decimals > quote_decimals {
-                base_decimals_adjustment = Some(base_decimals - quote_decimals);
+                quote_decimals_adjustment = Some(base_decimals - quote_decimals);
             } else if base_decimals < quote_decimals {
-                quote_decimals_adjustment = Some(quote_decimals - base_decimals);
+                base_decimals_adjustment = Some(quote_decimals - base_decimals);
             } 
 
             if T::Assets::should_touch(*base_asset.clone(), &pool_account) {
@@ -917,6 +917,7 @@ pub mod pallet {
             T::PalletId::get().into_account_truncating()
         }
 
+        // TODO: Benchmark
         pub fn get_pool_query(
             base_asset: &T::AssetKind,
             quote_asset: &T::AssetKind,
@@ -1094,10 +1095,10 @@ pub mod pallet {
             quantity: T::Unit,
         ) -> DispatchResult {
             if is_bid {
-                // Freeze the `price*quantity* amount of `quote_asset`
-                Self::freeze_asset(maker, quote_asset, price * quantity)?;
+                Self::freeze_asset(maker, quote_asset, (price*quantity).denom(
+                    pool.pool_decimals.unwrap_or(0) + pool.quote_adjustment.unwrap_or(0)
+                ))?;
             } else {
-                // Freeze the `quantity` amount of `base_asset`
                 Self::freeze_asset(maker, base_asset, quantity)?;
             }
             let (price, order_id) = pool
@@ -1323,6 +1324,7 @@ pub mod pallet {
             quote_decimals_adjustment: Option<u8>,
         ) -> Result<T::Unit, Error<T>> {
             let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
+            
             Ok(
                 Self::quote(
                     &One::one(),
