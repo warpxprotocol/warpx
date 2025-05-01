@@ -1324,15 +1324,15 @@ pub mod pallet {
             quote_decimals_adjustment: Option<u8>,
         ) -> Result<T::Unit, Error<T>> {
             let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
-            
-            Ok(
-                Self::quote(
-                    &One::one(),
-                    &base_reserve.normalize(base_decimals_adjustment),
-                    &quote_reserve.normalize(quote_decimals_adjustment),
-                )?
-                .normalize(pool_decimals)
-            )
+            let base_norm = base_reserve.normalize(base_decimals_adjustment);
+            let quote_norm = quote_reserve.normalize(quote_decimals_adjustment);
+            let amount: T::Unit = One::one();
+            let pool_price = Self::quote(
+                &amount.normalize(pool_decimals),
+                &base_norm,
+                &quote_norm,
+            )?; 
+            Ok(pool_price)
         }
 
         /// Find the closest swap quantity for the given order quantity. `order_quantity` is always

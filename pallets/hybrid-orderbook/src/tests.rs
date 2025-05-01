@@ -290,6 +290,45 @@ fn create_pool_works() {
 }
 
 #[test]
+fn pool_price_works() {
+    new_test_ext().execute_with(|| {
+        let user: MockAccountId = 1;
+        let base = NativeOrWithId::WithId(1);
+        let quote = NativeOrWithId::WithId(2);
+        let pool_id = (base.clone(), quote.clone());
+        create_tokens(user, vec![base.clone(), quote.clone()]);
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            user,
+            1000
+        ));
+        assert_ok!(HybridOrderbook::create_pool(
+            RuntimeOrigin::signed(user),
+            Box::new(base.clone()),
+            9,
+            Box::new(quote.clone()),
+            6,
+            Permill::zero(),
+            5,
+            1,
+            2
+        ));
+        assert_ok!(HybridOrderbook::add_liquidity(
+            RuntimeOrigin::signed(user),
+            Box::new(base.clone()),
+            Box::new(quote.clone()),
+            10000000 * (10u64.pow(9)),
+            41500000 * (10u64.pow(6)),
+            10000000 * (10u64.pow(9)),
+            41500000 * (10u64.pow(6)),
+            user,
+        ));
+        let pool_price = HybridOrderbook::pool_price(&base, None, None, &quote, None).unwrap();
+        println!("Pool price => {:?}", pool_price);
+    })
+}
+
+#[test]
 fn add_liquidity_works() {
     new_test_ext().execute_with(|| {
         let user: MockAccountId = 1;
