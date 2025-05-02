@@ -1181,16 +1181,14 @@ pub mod pallet {
                             pool.quote_adjustment,
                             remain_orders,
                         )?;
-                        if_std! {
-                            println!(
-                                "
-									📕 Book Price => {:?},
-									🎯 Remain Orders => {:?},
-									✅ Max Swap Quantity => {:?}
-								",
-                                orderbook_price, remain_orders, max_swap_quantity
-                            );
-                        }
+                        log::info!(
+                            "
+                                📕 Book Price => {:?},
+                                🎯 Remain Orders => {:?},
+                                ✅ Max Swap Quantity => {:?}
+                            ",
+                            orderbook_price, remain_orders, max_swap_quantity
+                        );
                         if remain_orders <= max_swap_quantity {
                             // All orders filled from pool
                             Self::do_fill_pool(
@@ -1200,16 +1198,12 @@ pub mod pallet {
                                 base_asset,
                                 quote_asset,
                             )?;
-                            if_std! {
-                             println!("💦 Filled all {:?} orders from pool", remain_orders)
-                            }
+                            log::info!("💦 Filled all {:?} orders from pool", remain_orders);
                             remain_orders = Zero::zero();
                         } else {
                             let is_pool: bool = max_swap_quantity != Zero::zero();
                             if is_pool {
-                                if_std! {
-                                    println!("💦 Filled {:?} orders from Pool", max_swap_quantity);
-                                }
+                                log::info!("💦 Filled {:?} orders from Pool", max_swap_quantity);
                                 // Swap up to `max_swap_quantity` from pool
                                 Self::do_fill_pool(
                                     is_bid,
@@ -1221,9 +1215,7 @@ pub mod pallet {
                             }
                             // Remain orders subsume the closest will be filled from Orderbook
                             remain_orders -= max_swap_quantity;
-                            if_std! {
-                                println!("📖 Filled {:?} orders from Book", remain_orders);
-                            }
+                            log::info!("📖 Filled {:?} orders from Book", remain_orders);
                             Self::do_fill_book(
                                 is_bid,
                                 pool,
@@ -1357,32 +1349,29 @@ pub mod pallet {
             let mut swap_quantity: T::Unit = Zero::zero();
             while min < max {
                 let mid = (min + max + One::one()) / 2u32.into();
+                let unit: T::Unit = One::one();
                 let pool_price = if is_bid {
                     // If it is bid order, get `amount_in` of `quote_asset` with given `amount_out`
                     // of `base_asset` quantity of `base_asset`
                     let amount_in = Self::get_amount_in(&mid, &q_r, &b_r)?;
-                    if_std! { println!("Bid order: amount_in => {:?}, K = {:?}", amount_in, ((b_r-mid)*(q_r+amount_in)));}
+                    log::info!("Bid order: amount_in => {:?}, K = {:?}", amount_in, ((b_r-mid)*(q_r+amount_in)));
                     Self::quote(
-                        &One::one(),
+                        &unit.normalize(pool_decimals),
                         &(b_r - mid).normalize(base_decimals_adjustment),
                         &(q_r + amount_in).normalize(quote_decimals_adjustment),
                     )?
-                    .normalize(pool_decimals)
                 } else {
                     // If it is ask order, get `amount_out` of `quote_asset` with given `amount_in`
                     // of `base_asset`
                     let amount_out = Self::get_amount_out(&mid, &b_r, &q_r)?;
-                    if_std! { println!("Ask order: amount_out => {:?}", amount_out);}
+                    log::info!("Ask order: amount_out => {:?}", amount_out);
                     Self::quote(
-                        &One::one(),
+                        &unit.normalize(pool_decimals),
                         &(b_r + mid).normalize(base_decimals_adjustment),
                         &(q_r - amount_out).normalize(quote_decimals_adjustment),
                     )?
-                    .normalize(pool_decimals)
                 };
-                if_std! {
-                    println!("Pool Price => {:?}, Mid => {:?}", pool_price, mid);
-                }
+                log::info!("Pool Price => {:?}, Mid => {:?}", pool_price, mid);
                 // Return immediately when pool price after swap is equal to orderbook price
                 if pool_price == target {
                     return Ok(mid);
