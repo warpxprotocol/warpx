@@ -284,10 +284,12 @@ pub struct PoolQuery<Orderbook, Unit> {
     bids: Orderbook,
     asks: Orderbook,
     taker_fee_rate: Permill,
-    pool_decimals: u8,
     base_reserve: Unit,
     quote_reserve: Unit,
     pool_price: Unit,
+    pool_decimals: u8,
+    base_decimals: u8,
+    quote_decimals: u8,
 }
 
 /// Detail of the pool
@@ -349,10 +351,12 @@ impl<T: Config> Pool<T> {
             bids: self.bids,
             asks: self.asks,
             taker_fee_rate: self.taker_fee_rate,
-            pool_decimals: self.pool_decimals,
             base_reserve,
             quote_reserve,
             pool_price,
+            pool_decimals: self.pool_decimals,
+            base_decimals: self.base_decimals,
+            quote_decimals: self.quote_decimals,
         }
     }
 
