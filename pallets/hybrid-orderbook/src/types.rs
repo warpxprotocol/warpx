@@ -301,21 +301,21 @@ pub struct Pool<T: Config> {
     /// The orderbook of the ask.
     asks: T::OrderBook,
     /// The next order id of the bid. Starts from `0`d
-    pub next_bid_order_id: OrderId,
+    next_bid_order_id: OrderId,
     /// The next order id of the ask. Starts from (1 << BITS::63 - 1)
-    pub next_ask_order_id: OrderId,
+    next_ask_order_id: OrderId,
     /// The fee rate of the taker.
-    pub taker_fee_rate: Permill,
+    taker_fee_rate: Permill,
     /// The size of each tick based on the quote asset. Tick size woule be based on the `pool_decimals`
     pub tick_size: T::Unit,
     /// The minimum amount of the order. Decimal is same as `base` asset
-    pub lot_size: T::Unit, 
+    lot_size: T::Unit, 
     /// The decimals of the pool price 
-    pub pool_decimals: Option<u8>,
-    /// For decimal normalization of base asset
-    pub base_adjustment: Option<u8>,
-    /// For decimal normalization of quote asset
-    pub quote_adjustment: Option<u8>,
+    pub pool_decimals: u8,
+    /// The decimals of the base asset
+    pub base_decimals: u8,
+    /// The decimals of the quote asset
+    pub quote_decimals: u8,
 }
 
 impl<T: Config> Pool<T> {
@@ -326,14 +326,9 @@ impl<T: Config> Pool<T> {
         tick_size: T::Unit,
         lot_size: T::Unit,
         pool_decimals: u8,
-        base_adjustment: Option<u8>,
-        quote_adjustment: Option<u8>,
+        base_decimals: u8,
+        quote_decimals: u8,
     ) -> Self {
-        let pool_decimals = if pool_decimals == 0u8 {
-            None
-        } else {
-            Some(pool_decimals)
-        };
         Self {
             lp_token,
             bids: T::OrderBook::new(),
@@ -344,8 +339,8 @@ impl<T: Config> Pool<T> {
             tick_size,
             lot_size,
             pool_decimals,
-            base_adjustment,
-            quote_adjustment,
+            base_decimals,
+            quote_decimals
         }
     }
 
@@ -354,11 +349,23 @@ impl<T: Config> Pool<T> {
             bids: self.bids,
             asks: self.asks,
             taker_fee_rate: self.taker_fee_rate,
-            pool_decimals: self.pool_decimals.unwrap_or(0),
+            pool_decimals: self.pool_decimals,
             base_reserve,
             quote_reserve,
             pool_price,
         }
+    }
+
+    pub fn decimal_adjustment(&self) -> (Option<u8>, Option<u8>, Option<u8>) {
+        let p_adj = if self.pool_decimals == 0u8 { None } else { Some(self.pool_decimals) };
+        let mut b_adj = None;
+        let mut q_adj = None;
+        if self.base_decimals > self.quote_decimals {
+            q_adj = Some(self.base_decimals - self.quote_decimals);
+        } else if self.base_decimals < self.quote_decimals {
+            b_adj = Some(self.quote_decimals - self.base_decimals);
+        }
+        (p_adj, b_adj, q_adj)
     }
 
     pub fn get_orderbook(&self, is_bid: bool) -> &T::OrderBook {

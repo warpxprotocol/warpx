@@ -221,12 +221,8 @@ impl_runtime_apis! {
             HybridOrderbook::quote_price_tokens_for_exact_tokens(asset1, asset2, amount, include_fee)
         }
 
-        fn get_reserves(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>) -> Option<(Balance, Balance)> {
-            HybridOrderbook::get_reserves(&asset1, &asset2).ok()
-        }
-
-        fn get_pool_price(base: NativeOrWithId<u32>, pool_decimals: Option<u8>, base_decimal_diff: Option<u8>, quote: NativeOrWithId<u32>, quote_decimal_diff: Option<u8>) -> Option<Balance> {
-            HybridOrderbook::pool_price(&base, pool_decimals, base_decimal_diff, &quote, quote_decimal_diff).ok()
+        fn get_reserves(_asset1: NativeOrWithId<u32>, _asset2: NativeOrWithId<u32>) -> Option<(Balance, Balance)> {
+            None
         }
 
         fn get_pool_query(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<PoolQuery<CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>, Balance>> {

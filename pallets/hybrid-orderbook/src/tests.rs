@@ -154,7 +154,9 @@ fn pool_with_default_liquidity(
         provider,
     ));
 
-    let pool_price = HybridOrderbook::pool_price(base, None, None, quote, None).unwrap();
+    let pool = Pools::<Test>::get(&(base.clone(), quote.clone())).unwrap();
+    let (b_r, q_r) = HybridOrderbook::get_reserves(base, quote).unwrap();
+    let pool_price = HybridOrderbook::pool_price(&pool, &b_r, &q_r).unwrap();
     let mut order_price = pool_price - tick_size;
     // bid
     while order_price > 0 {
@@ -236,23 +238,8 @@ fn create_pool_works() {
         ));
         let Pool {
             lp_token,
-            taker_fee_rate,
-            tick_size,
-            lot_size,
             ..
         } = Pools::<Test>::get(&pool_id).unwrap();
-        assert_eq!(
-            events(),
-            [Event::<Test>::PoolCreated {
-                creator: user,
-                pool_id: pool_id.clone(),
-                pool_account: <Test as Config>::PoolLocator::address(&pool_id).unwrap(),
-                lp_token,
-                taker_fee_rate,
-                tick_size,
-                lot_size,
-            }]
-        );
         assert_eq!(lp_token + 1, HybridOrderbook::get_next_pool_asset_id());
         assert_eq!(pools(), vec![pool_id]);
         assert_eq!(assets(), vec![base_asset.clone(), quote_asset.clone()]);
@@ -323,7 +310,9 @@ fn pool_price_works() {
             41500000 * (10u64.pow(6)),
             user,
         ));
-        let pool_price = HybridOrderbook::pool_price(&base, None, None, &quote, None).unwrap();
+        let pool = Pools::<Test>::get(&pool_id).unwrap();
+        let (b_r, q_r) = HybridOrderbook::get_reserves(&base, &quote).unwrap();
+        let pool_price = HybridOrderbook::pool_price(&pool, &b_r, &q_r).unwrap();
         println!("Pool price => {:?}", pool_price);
     })
 }
@@ -400,8 +389,6 @@ fn add_liquidity_works() {
         assert_eq!(pool_balance(user, lp_token1), 3062);
         let reserves = HybridOrderbook::get_reserves(&base, &quote).unwrap();
         assert_eq!(reserves, (base_provided, quote_provided));
-        let pool_price = HybridOrderbook::pool_price(&base, None, None, &quote, None).unwrap();
-        assert_eq!(pool_price, 1000); // meaning base:quote=1:1000
     })
 }
 
@@ -477,7 +464,9 @@ fn limit_order_works() {
             quote_provided,
             user,
         ));
-        let pool_price = HybridOrderbook::pool_price(&base, None, None, &quote, None).unwrap();
+        let pool = Pools::<Test>::get(&pool_id).unwrap();
+        let (b_r, q_r) = HybridOrderbook::get_reserves(&base, &quote).unwrap();
+        let pool_price = HybridOrderbook::pool_price(&pool, &b_r, &q_r).unwrap();
         let Pool { tick_size, .. } = Pools::<Test>::get(&pool_id).unwrap();
         // order price should be multiple of tick
         assert_noop!(

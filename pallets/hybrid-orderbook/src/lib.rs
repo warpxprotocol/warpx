@@ -510,14 +510,6 @@ pub mod pallet {
             )?;
             T::PoolSetupFeeTarget::on_unbalanced(fee);
 
-            let mut base_decimals_adjustment = None;
-            let mut quote_decimals_adjustment = None;
-            if base_decimals > quote_decimals {
-                quote_decimals_adjustment = Some(base_decimals - quote_decimals);
-            } else if base_decimals < quote_decimals {
-                base_decimals_adjustment = Some(quote_decimals - base_decimals);
-            } 
-
             if T::Assets::should_touch(*base_asset.clone(), &pool_account) {
                 T::Assets::touch(*base_asset, &pool_account, &sender)?
             };
@@ -547,8 +539,8 @@ pub mod pallet {
                     tick_size,
                     lot_size,
                     pool_decimals,
-                    base_decimals_adjustment,
-                    quote_decimals_adjustment,
+                    base_decimals,
+                    quote_decimals,
                 ),
             );
             Self::deposit_event(Event::PoolCreated {
@@ -923,15 +915,10 @@ pub mod pallet {
             quote_asset: &T::AssetKind,
         ) -> Result<PoolQuery<T::OrderBook, T::Unit>, DispatchError> {
             let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset).map_err(|_| Error::<T>::PoolNotFound)?;
-            let pool_account = T::PoolLocator::pool_address(&base_asset, &quote_asset).map_err(|_| Error::<T>::PoolNotFound)?;
             let pool = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
-            let base_asset_reserve = Self::get_balance(&pool_account, &base_asset);
-            let quote_asset_reserve = Self::get_balance(&pool_account, &quote_asset);
-            let pool_decimals = pool.pool_decimals;
-            let base_adjustment = pool.base_adjustment;
-            let quote_adjustment = pool.quote_adjustment;
-            let pool_price = Self::pool_price(base_asset, pool_decimals, base_adjustment, quote_asset, quote_adjustment)?;
-            return Ok(pool.to_pool_query(base_asset_reserve, quote_asset_reserve, pool_price));
+            let (b_r, q_r) = Self::get_reserves(base_asset, quote_asset)?;
+            let pool_price = Self::pool_price(&pool, &b_r, &q_r)?;
+            return Ok(pool.to_pool_query(b_r, q_r, pool_price));
         }
 
         fn freeze_asset(
@@ -1026,62 +1013,61 @@ pub mod pallet {
         ) -> DispatchResult {
             let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset)
                 .map_err(|_| Error::<T>::InvalidAssetPair)?;
-            let mut pool = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
-            let pool_price = Self::pool_price(
-                base_asset,
-                pool.pool_decimals,
-                pool.base_adjustment,
-                quote_asset,
-                pool.quote_adjustment,
-            )
-            .map_err(|_| Error::<T>::ZeroLiquidity)?;
-            ensure!(
-                pool.is_valid_order_price(order_price),
-                Error::<T>::InvalidOrderPrice
-            );
-            ensure!(
-                pool.is_valid_order_quantity(order_quantity), 
-                Error::<T>::InvalidOrderQuantity
-            );
-            // Check whether order should be matched
-            let should_match_order = if is_bid {
-                order_price >= pool_price
-            } else {
-                order_price <= pool_price
-            };
+            Pools::<T>::try_mutate(pool_id.clone(), |maybe_pool| -> DispatchResult {
+                let mut pool = maybe_pool.take().ok_or(Error::<T>::PoolNotFound)?;
+                let (b_r, q_r) = Self::get_reserves(base_asset, quote_asset)?;
+                let pool_price = Self::pool_price(
+                    &pool,
+                    &b_r,
+                    &q_r,
+                )
+                .map_err(|_| Error::<T>::ZeroLiquidity)?;
+                ensure!(
+                    pool.is_valid_order_price(order_price),
+                    Error::<T>::InvalidOrderPrice
+                );
+                ensure!(
+                    pool.is_valid_order_quantity(order_quantity), 
+                    Error::<T>::InvalidOrderQuantity
+                );
+                // Check whether order should be matched
+                let should_match_order = if is_bid {
+                    order_price >= pool_price
+                } else {
+                    order_price <= pool_price
+                };
 
-            if should_match_order {
-                Self::do_match_order(
-                    is_bid,
-                    &maker,
-                    &mut pool,
-                    &base_asset,
-                    &quote_asset,
-                    order_quantity,
-                )?;
-            } else {
-                // place order on orderbook
-                Self::do_place_order(
-                    is_bid,
-                    &pool_id,
-                    &mut pool,
-                    &maker,
-                    &base_asset,
-                    &quote_asset,
+                if should_match_order {
+                    Self::do_match_order(
+                        is_bid,
+                        &maker,
+                        &mut pool,
+                        &base_asset,
+                        &quote_asset,
+                        order_quantity,
+                    )?;
+                } else {
+                    Self::do_place_order(
+                        is_bid,
+                        &pool_id,
+                        &mut pool,
+                        &maker,
+                        &base_asset,
+                        &quote_asset,
+                        order_price,
+                        order_quantity,
+                    )?;
+                }
+                *maybe_pool = Some(pool);
+                Self::deposit_event(Event::<T>::LimitOrder {
+                    pool_id,
+                    maker: maker.clone(),
                     order_price,
                     order_quantity,
-                )?;
-            }
-            // Update pool
-            Pools::<T>::insert(&pool_id, pool);
-            Self::deposit_event(Event::<T>::LimitOrder {
-                pool_id,
-                maker: maker.clone(),
-                order_price,
-                order_quantity,
-                is_bid,
-            });
-            Ok(())
+                    is_bid,
+                });
+                Ok(())
+            })
         }
 
         pub(crate) fn do_place_order(
@@ -1094,12 +1080,16 @@ pub mod pallet {
             price: T::Unit,
             quantity: T::Unit,
         ) -> DispatchResult {
+            let (p_adj, _, q_adj) = pool.decimal_adjustment();
             if is_bid {
-                Self::freeze_asset(maker, quote_asset, (price*quantity).denom(
-                    pool.pool_decimals.unwrap_or(0) + pool.quote_adjustment.unwrap_or(0)
-                ))?;
+                let freeze_amount = (price*quantity).denom(
+                    p_adj.unwrap_or(0) + q_adj.unwrap_or(0)
+                );
+                Self::freeze_asset(maker, quote_asset, freeze_amount)?;
+                log::debug!(target: LOG_TARGET, "Freeze {:?} {:?} for bid order", quote_asset, freeze_amount);
             } else {
                 Self::freeze_asset(maker, base_asset, quantity)?;
+                log::debug!(target: LOG_TARGET, "Freeze {:?} {:?} for ask order", base_asset, quantity);
             }
             let (price, order_id) = pool
                 .place_order(is_bid, maker, price, quantity)
@@ -1170,24 +1160,23 @@ pub mod pallet {
                     pool.next_bid_order()
                 };
                 match maybe_next_order {
-                    Some((orderbook_price, _)) => {
+                    Some((target_price, _)) => {
                         let max_swap_quantity = Self::find_max_swap_quantity(
                             is_bid,
-                            orderbook_price,
-                            pool.pool_decimals,
+                            target_price,
+                            &pool,
                             base_asset,
-                            pool.base_adjustment,
                             quote_asset,
-                            pool.quote_adjustment,
                             remain_orders,
                         )?;
-                        log::info!(
+                        log::debug!(
+                            target: LOG_TARGET,
                             "
                                 📕 Book Price => {:?},
                                 🎯 Remain Orders => {:?},
                                 ✅ Max Swap Quantity => {:?}
                             ",
-                            orderbook_price, remain_orders, max_swap_quantity
+                            target_price, remain_orders, max_swap_quantity
                         );
                         if remain_orders <= max_swap_quantity {
                             // All orders filled from pool
@@ -1219,7 +1208,7 @@ pub mod pallet {
                             Self::do_fill_book(
                                 is_bid,
                                 pool,
-                                orderbook_price,
+                                target_price,
                                 &mut remain_orders,
                                 &mut filled_orders,
                             )?;
@@ -1297,9 +1286,7 @@ pub mod pallet {
                     })
                 });
             *order_quantity -= filled;
-            if_std! {
-                println!("🤑 {:?} of orders filled from book for {:?}. {:?} orders left", filled, price, order_quantity);
-            }
+            log::debug!(target: LOG_TARGET, "🤑 {:?} of orders filled from book for {:?}. {:?} orders left", filled, price, order_quantity);
             Ok(())
         }
 
@@ -1309,18 +1296,16 @@ pub mod pallet {
         ///
         /// 1 * quote_reserve / base_reserve
         pub fn pool_price(
-            base_asset: &T::AssetKind,
-            pool_decimals: Option<u8>,
-            base_decimals_adjustment: Option<u8>,
-            quote_asset: &T::AssetKind,
-            quote_decimals_adjustment: Option<u8>,
+            pool: &Pool<T>,
+            base_reserve: &T::Unit,
+            quote_reserve: &T::Unit,
         ) -> Result<T::Unit, Error<T>> {
-            let (base_reserve, quote_reserve) = Self::get_reserves(base_asset, quote_asset)?;
-            let base_norm = base_reserve.normalize(base_decimals_adjustment);
-            let quote_norm = quote_reserve.normalize(quote_decimals_adjustment);
+            let (p_adj, b_adj, q_adj) = pool.decimal_adjustment();
+            let base_norm = base_reserve.normalize(b_adj);
+            let quote_norm = quote_reserve.normalize(q_adj);
             let amount: T::Unit = One::one();
             let pool_price = Self::quote(
-                &amount.normalize(pool_decimals),
+                &amount.normalize(p_adj),
                 &base_norm,
                 &quote_norm,
             )?; 
@@ -1336,16 +1321,15 @@ pub mod pallet {
         pub(crate) fn find_max_swap_quantity(
             is_bid: bool,
             target: T::Unit,
-            pool_decimals: Option<u8>,
+            pool: &Pool<T>,
             base_asset: &T::AssetKind,
-            base_decimals_adjustment: Option<u8>,
             quote_asset: &T::AssetKind,
-            quote_decimals_adjustment: Option<u8>,
-            order_quantity: T::Unit,
+            remain_orders: T::Unit,
         ) -> Result<T::Unit, Error<T>> {
             let (b_r, q_r) = Self::get_reserves(base_asset, quote_asset)?;
+            let (p_adj, b_adj, q_adj) = pool.decimal_adjustment();
             let mut min: T::Unit = Zero::zero();
-            let mut max: T::Unit = order_quantity;
+            let mut max: T::Unit = remain_orders;
             let mut swap_quantity: T::Unit = Zero::zero();
             while min < max {
                 let mid = (min + max + One::one()) / 2u32.into();
@@ -1354,37 +1338,38 @@ pub mod pallet {
                     // If it is bid order, get `amount_in` of `quote_asset` with given `amount_out`
                     // of `base_asset` quantity of `base_asset`
                     let amount_in = Self::get_amount_in(&mid, &q_r, &b_r)?;
-                    log::info!("Bid order: amount_in => {:?}, K = {:?}", amount_in, ((b_r-mid)*(q_r+amount_in)));
+                    log::debug!(target: LOG_TARGET, "Bid order: amount_in => {:?}", amount_in);
                     Self::quote(
-                        &unit.normalize(pool_decimals),
-                        &(b_r - mid).normalize(base_decimals_adjustment),
-                        &(q_r + amount_in).normalize(quote_decimals_adjustment),
+                        &unit.normalize(p_adj),
+                        &(b_r - mid).normalize(b_adj),
+                        &(q_r + amount_in).normalize(q_adj),
                     )?
                 } else {
                     // If it is ask order, get `amount_out` of `quote_asset` with given `amount_in`
                     // of `base_asset`
                     let amount_out = Self::get_amount_out(&mid, &b_r, &q_r)?;
-                    log::info!("Ask order: amount_out => {:?}", amount_out);
+                    log::debug!(target: LOG_TARGET, "Ask order: amount_out => {:?}", amount_out);
                     Self::quote(
-                        &unit.normalize(pool_decimals),
-                        &(b_r + mid).normalize(base_decimals_adjustment),
-                        &(q_r - amount_out).normalize(quote_decimals_adjustment),
+                        &unit.normalize(p_adj),
+                        &(b_r + mid).normalize(b_adj),
+                        &(q_r - amount_out).normalize(q_adj),
                     )?
                 };
-                log::info!("Pool Price => {:?}, Mid => {:?}", pool_price, mid);
+                log::debug!(target: LOG_TARGET, "Pool Price => {:?}, Mid => {:?}", pool_price, mid);
                 // Return immediately when pool price after swap is equal to orderbook price
                 if pool_price == target {
                     return Ok(mid);
                 }
-                // Narrow it down if it is not
+                // Narrow it down if it is not equal to target price
+                let one: T::Unit = One::one();
                 if pool_price < target {
                     // 'pool_price' should become bigger
                     if is_bid {
                         // If it is bid order, more base assets should be swapped out
-                        min = mid + One::one();
+                        min = mid + one.normalize(Some(pool.base_decimals));
                     } else {
                         // If it is ask order, less base assets should be swapped in
-                        max = mid - One::one();
+                        max = mid - one.normalize(Some(pool.base_decimals));
                     }
                     swap_quantity = mid;
                 } else {
@@ -2067,9 +2052,6 @@ sp_api::decl_runtime_apis! {
 
         /// Returns the size of the liquidity pool for the given asset pair.
         fn get_reserves(asset1: AssetId, asset2: AssetId) -> Option<(Balance, Balance)>;
-
-        /// Returns the price of the given asset pair.
-        fn get_pool_price(base: AssetId, pool_decimals: Option<u8>, base_decimal_diff: Option<u8>, quote: AssetId, quote_decimal_diff: Option<u8>) -> Option<Balance>;
 
         /// Returns query of the `pool`
         fn get_pool_query(base: AssetId, quote: AssetId) -> Option<PoolQuery<Orderbook, Balance>>;
