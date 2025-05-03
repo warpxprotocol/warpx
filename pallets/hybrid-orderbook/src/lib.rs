@@ -936,6 +936,7 @@ pub mod pallet {
 
         fn handle_filled_orders(
             is_bid: bool,
+            pool: &Pool<T>,
             base_asset: T::AssetKind,
             quote_asset: T::AssetKind,
             orderer: &T::AccountId,
@@ -953,7 +954,11 @@ pub mod pallet {
                 // Release amount would be different based on `is_bid`. If it is bid order, `q`
                 // amount of base asset would be released. While if it is ask order, `p*q` amount of
                 // quote asset would be released.
-                let released = if is_bid { q } else { p * q };
+                let released = if is_bid { q } else { 
+                    let r: T::Unit = p * q;
+                    let (p_adj, _, q_adj) = pool.decimal_adjustment();
+                    r.denom(p_adj.unwrap_or(0) + q_adj.unwrap_or(0))
+                };
                 // 1. Release the frozen asset
                 T::AssetsFreezer::decrease_frozen(
                     asset1.clone(),
@@ -963,8 +968,16 @@ pub mod pallet {
                 )?;
                 // 2. Transfer assets between orderer and owner of limit order
                 let (transfer1, transfer2) = if is_bid { (q, released) } else { (released, q) };
-                T::Assets::transfer(asset1.clone(), &owner, orderer, transfer1, Preserve)?;
-                T::Assets::transfer(asset2.clone(), orderer, &owner, transfer2, Preserve)?;
+                T::Assets::transfer(asset1.clone(), &owner, &orderer, transfer1, Preserve)?;
+                T::Assets::transfer(asset2.clone(), &orderer, &owner, transfer2, Preserve)?;
+                log::debug!(target: LOG_TARGET, "HandleFilledOrder {:?} {:?} {:?} {:?} {:?} {:?}",
+                    orderer,
+                    transfer1,
+                    transfer2,
+                    owner,
+                    transfer2,
+                    transfer1,
+                );
             }
 
             Ok(())
@@ -1224,6 +1237,7 @@ pub mod pallet {
             }
             Self::handle_filled_orders(
                 is_bid,
+                &pool,
                 base_asset.clone(),
                 quote_asset.clone(),
                 orderer,
@@ -1362,24 +1376,25 @@ pub mod pallet {
                 }
                 // Narrow it down if it is not equal to target price
                 let one: T::Unit = One::one();
+                let one_normalized = one.normalize(Some(pool.base_decimals));
                 if pool_price < target {
                     // 'pool_price' should become bigger
                     if is_bid {
                         // If it is bid order, more base assets should be swapped out
-                        min = mid + one.normalize(Some(pool.base_decimals));
+                        min = mid + one_normalized;
                     } else {
                         // If it is ask order, less base assets should be swapped in
-                        max = mid - one.normalize(Some(pool.base_decimals));
+                        max = mid - one_normalized;
                     }
                     swap_quantity = mid;
                 } else {
                     // 'pool_price' should become smaller
                     if is_bid {
                         // If it is bid order, less base assets should be swapped out
-                        max = mid - One::one();
+                        max = mid - one_normalized;
                     } else {
                         // If it is ask order, more base assets should be swapped in
-                        min = mid + One::one();
+                        min = mid + one_normalized;
                     }
                 }
             }
