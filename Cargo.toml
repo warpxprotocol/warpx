@@ -6,7 +6,7 @@ repository = "https://github.com/warpxprotocol/warpx"
 edition = "2021"
 
 [workspace]
-members = ["node", "pallets/hybrid-orderbook", "runtime"]
+members = ["node", "pallets/hybrid-orderbook", "pallets/shielded-pool", "runtime"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -14,6 +14,7 @@ resolver = "2"
 # Local
 warpx-runtime = { path = "./runtime", default-features = false }
 pallet-hybrid-orderbook = { path = "./pallets/hybrid-orderbook", default-features = false }
+pallet-shielded-pool = { path = "./pallets/shielded-pool", default-features = false }
 
 # External
 clap = { version = "4.5.3" }
@@ -29,6 +30,9 @@ prometheus-endpoint = { version = "0.17.0", default-features = false, package = 
 serde = { version = "1.0.197", default-features = false }
 serde_json = { version = "1.0.114", default-features = false }
 hex-literal = { version = "0.4.1", default-features = false }
+
+# ZKVM
+risc0-zkvm = { version = "^2.0.1", default-features = false }
 
 # Db
 nomt = { git = "https://github.com/thrumdev/nomt.git", tag = "v1.0.0-preview" }

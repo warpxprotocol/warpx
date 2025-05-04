@@ -45,13 +45,13 @@ pallet-assets-freezer = { workspace = true }
 default = ["std"]
 std = [
 	"codec/std",
+	"log/std",
+	"scale-info/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
-	"log/std",
 	"pallet-assets/std",
 	"pallet-balances/std",
-	"scale-info/std",
 	"sp-api/std",
 	"sp-arithmetic/std",
 	"sp-core/std",
