@@ -279,14 +279,20 @@ impl<Quantity, Account: Clone, BlockNumber> Order<Quantity, Account, BlockNumber
     }
 }
 
-#[derive(Encode, Decode, Default, Debug, Clone, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, TypeInfo)]
 pub struct PoolQuery<Orderbook, Unit> {
     bids: Orderbook,
     asks: Orderbook,
-    taker_fee_rate: Permill,
     base_reserve: Unit,
     quote_reserve: Unit,
     pool_price: Unit,
+}
+
+#[derive(Encode, Decode, TypeInfo)]
+pub struct PoolMetadata<Unit> {
+    taker_fee_rate: Permill,
+    lot_size: Unit,
+    tick_size: Unit,
     pool_decimals: u8,
     base_decimals: u8,
     quote_decimals: u8,
@@ -350,10 +356,17 @@ impl<T: Config> Pool<T> {
         PoolQuery {
             bids: self.bids,
             asks: self.asks,
-            taker_fee_rate: self.taker_fee_rate,
             base_reserve,
             quote_reserve,
             pool_price,
+        }
+    }
+
+    pub fn to_pool_metadata(self) -> PoolMetadata<T::Unit> {
+        PoolMetadata {
+            taker_fee_rate: self.taker_fee_rate,
+            lot_size: self.lot_size,
+            tick_size: self.tick_size,
             pool_decimals: self.pool_decimals,
             base_decimals: self.base_decimals,
             quote_decimals: self.quote_decimals,

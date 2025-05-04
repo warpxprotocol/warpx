@@ -921,6 +921,15 @@ pub mod pallet {
             return Ok(pool.to_pool_query(b_r, q_r, pool_price));
         }
 
+        pub fn get_pool_metadata(
+            base_asset: &T::AssetKind,
+            quote_asset: &T::AssetKind,
+        ) -> Result<PoolMetadata<T::Unit>, DispatchError> {
+            let pool_id = T::PoolLocator::pool_id(base_asset, quote_asset).map_err(|_| Error::<T>::PoolNotFound)?;
+            let pool = Pools::<T>::get(&pool_id).ok_or(Error::<T>::PoolNotFound)?;
+            Ok(pool.to_pool_metadata())
+        }
+
         fn freeze_asset(
             who: &T::AccountId,
             asset: &T::AssetKind,
@@ -2043,33 +2052,11 @@ sp_api::decl_runtime_apis! {
         AssetId: Codec,
         Orderbook: Codec,
     {
-        /// Provides a quote for [`Pallet::swap_tokens_for_exact_tokens`].
-        ///
-        /// Note that the price may have changed by the time the transaction is executed.
-        /// (Use `amount_in_max` to control slippage.)
-        fn quote_price_tokens_for_exact_tokens(
-            asset1: AssetId,
-            asset2: AssetId,
-            amount: Balance,
-            include_fee: bool,
-        ) -> Option<Balance>;
-
-        /// Provides a quote for [`Pallet::swap_exact_tokens_for_tokens`].
-        ///
-        /// Note that the price may have changed by the time the transaction is executed.
-        /// (Use `amount_out_min` to control slippage.)
-        fn quote_price_exact_tokens_for_tokens(
-            asset1: AssetId,
-            asset2: AssetId,
-            amount: Balance,
-            include_fee: bool,
-        ) -> Option<Balance>;
-
-        /// Returns the size of the liquidity pool for the given asset pair.
-        fn get_reserves(asset1: AssetId, asset2: AssetId) -> Option<(Balance, Balance)>;
-
         /// Returns query of the `pool`
         fn get_pool_query(base: AssetId, quote: AssetId) -> Option<PoolQuery<Orderbook, Balance>>;
+
+        /// Returns the metadata of the pool
+        fn get_pool_metadata(base: AssetId, quote: AssetId) -> Option<PoolMetadata<Balance>>;
     }
 }
 

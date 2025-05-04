@@ -40,7 +40,7 @@ use sp_runtime::{
     ApplyExtrinsicResult,
 };
 use sp_version::RuntimeVersion;
-use pallet_hybrid_orderbook::{CritbitTree, PoolQuery, Tick};
+use pallet_hybrid_orderbook::{CritbitTree, PoolQuery, PoolMetadata, Tick};
 
 // Local module imports
 use super::{
@@ -213,20 +213,12 @@ impl_runtime_apis! {
     }
 
     impl pallet_hybrid_orderbook::HybridOrderbookApi<Block, Balance, NativeOrWithId<u32>, CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>> for Runtime {
-        fn quote_price_exact_tokens_for_tokens(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>, amount: Balance, include_fee: bool) -> Option<Balance> {
-            HybridOrderbook::quote_price_exact_tokens_for_tokens(asset1, asset2, amount, include_fee)
-        }
-
-        fn quote_price_tokens_for_exact_tokens(asset1: NativeOrWithId<u32>, asset2: NativeOrWithId<u32>, amount: Balance, include_fee: bool) -> Option<Balance> {
-            HybridOrderbook::quote_price_tokens_for_exact_tokens(asset1, asset2, amount, include_fee)
-        }
-
-        fn get_reserves(_asset1: NativeOrWithId<u32>, _asset2: NativeOrWithId<u32>) -> Option<(Balance, Balance)> {
-            None
-        }
-
         fn get_pool_query(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<PoolQuery<CritbitTree<Balance, Tick<Balance, AccountId, BlockNumber>>, Balance>> {
             HybridOrderbook::get_pool_query(&base, &quote).ok()
+        }
+
+        fn get_pool_metadata(base: NativeOrWithId<u32>, quote: NativeOrWithId<u32>) -> Option<PoolMetadata<Balance>> {
+            HybridOrderbook::get_pool_metadata(&base, &quote).ok()
         }
     }
 
