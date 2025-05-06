@@ -32,7 +32,7 @@ serde_json = { version = "1.0.114", default-features = false }
 hex-literal = { version = "0.4.1", default-features = false }
 
 # ZKVM
-risc0-zkvm = { version = "^2.0.1", default-features = false }
+risc0-verifier = { git = "https://github.com/zkVerify/risc0-verifier.git", tag = "v0.6.0", default-features = false }
 
 # Db
 nomt = { git = "https://github.com/thrumdev/nomt.git", tag = "v1.0.0-preview" }

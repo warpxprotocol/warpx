@@ -433,3 +433,7 @@ impl pallet_hybrid_orderbook::Config for Runtime {
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
 }
+
+impl pallet_shielded_pool::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}

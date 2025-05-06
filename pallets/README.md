@@ -1,13 +1,23 @@
 # Pallets
 
-ℹ️ A pallet is a unit of encapsulated logic, with a clearly defined responsibility. A pallet is analogous to a
-module in the runtime.
+## [Shielded Pool Pallet](./shielded-pool/README.md)
 
-💁 In this template, there is a simple custom pallet based on the FRAME framework.
+A privacy-preserving transaction system using zero-knowledge proofs (RISC0). It enables private transactions while preventing double-spending through note commitments and nullifiers.
 
-👉 Learn more about FRAME
-[here](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/polkadot_sdk/frame_runtime/index.html).
+### Key Features
 
-🧑‍🏫 Please refer to
-[this guide](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/guides/your_first_pallet/index.html)
-to learn how to write a basic pallet.
+- Private transaction support
+- Zero-knowledge proof verification
+- Double-spending prevention
+- Prover account management
+
+## [Hybrid Orderbook Pallet](./hybrid-orderbook/README.md)
+
+A hybrid trading system that combines orderbook and liquidity pool functionalities. It supports both limit and market orders with efficient order matching.
+
+### Key Features
+
+- Limit and market order support
+- Hybrid orderbook and liquidity pool
+- Efficient order matching
+- Multiple asset pair support

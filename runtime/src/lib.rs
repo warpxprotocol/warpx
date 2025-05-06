@@ -275,6 +275,7 @@ construct_runtime!(
         PoolAssets: pallet_assets::<Instance2> = 51,
         AssetsFreezer: pallet_assets_freezer::<Instance1> = 52,
         HybridOrderbook: pallet_hybrid_orderbook = 53,
+        ShieldedPool: pallet_shielded_pool = 54,
 
         // Misc
         Utility: pallet_utility = 98,
