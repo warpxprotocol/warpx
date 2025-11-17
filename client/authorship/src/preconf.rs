@@ -405,7 +405,6 @@ where
                 }
             }
         });
-        let mut used_txs = HashSet::new();
         let timeout = deadline.saturating_duration_since((self.now)());
         let mut ready_txs = self
             .transaction_pool
@@ -432,26 +431,26 @@ where
                                 None
                             };
                             let preconf_deadline = self.effective_deadline(deadline);
-                            let sub_block_payload = self
+                            if let Some(sub_block_payload) = self
                                 .build_sub_block(
                                     &mut block_builder,
                                     preconf_deadline,
                                     block_size_limit,
                                     sub_block_count,
                                     base_only_if_first_block,
-                                    &mut used_txs,
                                     &mut ready_txs,
                                 )
-                                .await?;
+                                .await? {
+                                    let _ = self
+                                        .send_message(
+                                            serde_json::to_string(&sub_block_payload)
+                                                .unwrap_or_default()
+                                                .to_string(),
+                                        )
+                                        .map_err(|e| sp_blockchain::Error::Application(e))?;
+                                    // info!(target: "preconf-authorship", "Sent authoring signal for preconf block #{}", sub_block_count);
+                                }
                             sub_block_count += 1;
-                            let _ = self
-                                .send_message(
-                                    serde_json::to_string(&sub_block_payload)
-                                        .unwrap_or_default()
-                                        .to_string(),
-                                )
-                                .map_err(|e| sp_blockchain::Error::Application(e))?;
-                            // info!(target: "preconf-authorship", "Sent authoring signal for preconf block #{}", sub_block_count);
                         }
                         None => break,
                     }
@@ -477,32 +476,28 @@ where
         block_size_limit: usize,
         sub_block_index: u64,
         preconf_block_base: Option<PreConfBlockBase<Block>>,
-        used_txs: &mut HashSet<Pool::Hash>,
         ready_txs: &mut ReadyTxs<Pool>,
-    ) -> Result<PreConfBlockPayload<Block>, sp_blockchain::Error> {
+    ) -> Result<Option<PreConfBlockPayload<Block>>, sp_blockchain::Error> {
         let (end_reason, extrinsics) = self
-            .apply_extrinsics(
-                block_builder,
-                ready_txs,
-                preconf_deadline,
-                block_size_limit,
-                used_txs,
-            )
+            .apply_extrinsics(block_builder, ready_txs, preconf_deadline, block_size_limit)
             .await?;
         let extrinsics_count = extrinsics.len();
-        let diff = PreConfBlockDiff::<Block> { extrinsics };
-        let payload = PreConfBlockPayload::<Block> {
-            payload_id: Self::new_payload_id(self.parent_hash, sub_block_index),
-            index: sub_block_index,
-            base: preconf_block_base,
-            diff,
-            metadata: serde_json::json!({
-                "end_reason": format!("{:?}", end_reason),
-                "extrinsics_count": extrinsics_count,
-            }),
-        };
-        info!(target: "preconf-authorship", "Built preconf block #{} with {} extrinsics", sub_block_index, extrinsics_count);
-        Ok(payload)
+        if extrinsics_count > 0 {
+            let diff = PreConfBlockDiff::<Block> { extrinsics };
+            let payload = PreConfBlockPayload::<Block> {
+                payload_id: Self::new_payload_id(self.parent_hash, sub_block_index),
+                index: sub_block_index,
+                base: preconf_block_base,
+                diff,
+                metadata: serde_json::json!({
+                    "end_reason": format!("{:?}", end_reason),
+                    "extrinsics_count": extrinsics_count,
+                }),
+            };
+            Ok(Some(payload))
+        } else {
+            Ok(None)
+        }
     }
 
     fn apply_inherents(
@@ -557,7 +552,6 @@ where
         ready_txs: &mut ReadyTxs<Pool>,
         deadline: time::Instant,
         block_size_limit: usize,
-        used_txs: &mut HashSet<Pool::Hash>,
     ) -> Result<(EndProposingReason, Vec<Block::Extrinsic>), sp_blockchain::Error> {
         let now = (self.now)();
         let left = deadline.saturating_duration_since(now);
@@ -575,7 +569,7 @@ where
             let pending_tx = if let Some(pending_tx) = ready_txs.next() {
                 pending_tx
             } else {
-                info!(
+                debug!(
                     target: LOG_TARGET,
                     "No more transactions, proceeding with proposing."
                 );
