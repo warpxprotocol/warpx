@@ -477,14 +477,17 @@ where
         sub_block_index: u64,
         preconf_block_base: Option<PreConfBlockBase<Block>>,
         ready_txs: &mut ReadyTxs<Pool>,
-    ) -> Result<Option<PreConfBlockPayload<Block>>, sp_blockchain::Error> {
-        let (end_reason, extrinsics) = self
+    ) -> Result<Option<PreConfBlockPayload<Block, Pool::Hash>>, sp_blockchain::Error> {
+        let (end_reason, extrinsics, extrinsics_hashes) = self
             .apply_extrinsics(block_builder, ready_txs, preconf_deadline, block_size_limit)
             .await?;
         let extrinsics_count = extrinsics.len();
         if extrinsics_count > 0 {
-            let diff = PreConfBlockDiff::<Block> { extrinsics };
-            let payload = PreConfBlockPayload::<Block> {
+            let diff = PreConfBlockDiff::<Block, Pool::Hash> {
+                extrinsics,
+                hashes: extrinsics_hashes,
+            };
+            let payload = PreConfBlockPayload::<Block, Pool::Hash> {
                 payload_id: Self::new_payload_id(self.parent_hash, sub_block_index),
                 index: sub_block_index,
                 base: preconf_block_base,
@@ -552,7 +555,8 @@ where
         ready_txs: &mut ReadyTxs<Pool>,
         deadline: time::Instant,
         block_size_limit: usize,
-    ) -> Result<(EndProposingReason, Vec<Block::Extrinsic>), sp_blockchain::Error> {
+    ) -> Result<(EndProposingReason, Vec<Block::Extrinsic>, Vec<Pool::Hash>), sp_blockchain::Error>
+    {
         let now = (self.now)();
         let left = deadline.saturating_duration_since(now);
         let left_micros: u64 = left.as_micros().saturated_into();
@@ -681,7 +685,7 @@ where
         self.transaction_pool
             .report_invalid(Some(self.parent_hash), unqueue_invalid)
             .await;
-        Ok((end_reason, extrinsics))
+        Ok((end_reason, extrinsics, extrinsics_hashes))
     }
 
     // fn print_summary(

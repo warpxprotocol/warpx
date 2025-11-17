@@ -7,7 +7,7 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 pub struct PayloadId(pub [u8; 8]);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PreConfBlockPayload<Block: BlockT> {
+pub struct PreConfBlockPayload<Block: BlockT, TxHash> {
     /// The payload id of the preconf block
     pub payload_id: PayloadId,
     /// The index of the `preconf block` in the block
@@ -15,7 +15,7 @@ pub struct PreConfBlockPayload<Block: BlockT> {
     /// The base of the preconf block
     pub base: Option<PreConfBlockBase<Block>>,
     /// The diff of the preconf block
-    pub diff: PreConfBlockDiff<Block>,
+    pub diff: PreConfBlockDiff<Block, TxHash>,
     /// Additional metadata related to the preconf block
     pub metadata: serde_json::Value,
 }
@@ -47,6 +47,7 @@ impl<Block: BlockT> PreConfBlockBase<Block> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PreConfBlockDiff<Block: BlockT> {
+pub struct PreConfBlockDiff<Block: BlockT, TxHash> {
     pub extrinsics: Vec<Block::Extrinsic>,
+    pub hashes: Vec<TxHash>,
 }
