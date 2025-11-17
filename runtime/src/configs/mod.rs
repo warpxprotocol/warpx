@@ -26,7 +26,7 @@
 mod xcm_config;
 
 // Substrate and Polkadot dependencies
-use cumulus_pallet_parachain_system::{DefaultCoreSelector, RelayNumberMonotonicallyIncreases};
+use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
 use cumulus_primitives_core::{AggregateMessageOrigin, ParaId};
 use frame_support::{
     derive_impl,
@@ -61,8 +61,8 @@ use xcm::latest::prelude::BodyId;
 // Local module imports
 use super::{
     alloc::vec, weights, AccountId, AssetId, Assets, AssetsFreezer, Aura, Balance, Balances, Block,
-    BlockNumber, CollatorSelection, ConsensusHook, Hash, MessageQueue, Nonce,
-    PalletInfo, ParachainSystem, PoolAssets, Runtime, RuntimeCall, RuntimeEvent, OriginCaller,
+    BlockNumber, CollatorSelection, ConsensusHook, Hash, MessageQueue, Nonce, OriginCaller,
+    PalletInfo, ParachainSystem, PoolAssets, Runtime, RuntimeCall, RuntimeEvent,
     RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, Session, SessionKeys,
     System, WeightToFee, XcmpQueue, AVERAGE_ON_INITIALIZE_RATIO, DAYS, EXISTENTIAL_DEPOSIT, HOURS,
     MAXIMUM_BLOCK_WEIGHT, MICROUNIT, MILLIUNIT, NORMAL_DISPATCH_RATIO, SLOT_DURATION, VERSION,
@@ -132,7 +132,7 @@ impl frame_system::Config for Runtime {
 }
 
 impl cumulus_pallet_weight_reclaim::Config for Runtime {
-	type WeightInfo = weights::cumulus_pallet_weight_reclaim::WeightInfo<Runtime>;
+    type WeightInfo = weights::cumulus_pallet_weight_reclaim::WeightInfo<Runtime>;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -188,9 +188,9 @@ impl pallet_transaction_payment::Config for Runtime {
 
 impl pallet_utility::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-	type RuntimeCall = RuntimeCall;
-	type PalletsOrigin = OriginCaller;
-	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
+    type RuntimeCall = RuntimeCall;
+    type PalletsOrigin = OriginCaller;
+    type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -217,7 +217,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
     type ReservedXcmpWeight = ReservedXcmpWeight;
     type CheckAssociatedRelayNumber = RelayNumberMonotonicallyIncreases;
     type ConsensusHook = ConsensusHook;
-    type SelectCore = DefaultCoreSelector<Runtime>;
+    type RelayParentOffset = ConstU32<0>;
 }
 
 impl parachain_info::Config for Runtime {}
@@ -284,6 +284,8 @@ impl pallet_session::Config for Runtime {
     type Keys = SessionKeys;
     type DisablingStrategy = ();
     type WeightInfo = ();
+    type Currency = Balances;
+    type KeyDeposit = ();
 }
 
 #[docify::export(aura_config)]
