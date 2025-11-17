@@ -1,0 +1,21 @@
+[package]
+name="warpx"
+description = "warp(x) main binary"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[[bin]]
+path = "main.rs"
+name = "warpx"
+
+[dependencies]
+color-eyre = { workspace = true, default-features = false }
+warpx-cli = { workspace = true, default-features = false }
+
+[build-dependencies]
+substrate-build-script-utils = { workspace = true, default-features = true }

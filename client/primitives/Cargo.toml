@@ -1,0 +1,16 @@
+[package]
+name = "warpx-client-primitives"
+description = "warp(x) client primitives implementation"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+
+serde_json = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }

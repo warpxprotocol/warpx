@@ -1,0 +1,43 @@
+[package]
+name = "warpx-cli"
+description = "warp(x) CLI implementation"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Local
+warpx-runtime = { workspace = true, default-features = true }
+warpx-service = { path = "../service", default-features = true }
+    
+# External
+clap = { features = ["derive"], workspace = true }
+color-print = { workspace = true }
+log = { workspace = true, default-features = true }
+
+# Polkadot
+polkadot-cli = { workspace = true, default-features = true }
+
+# Cumulus
+cumulus-client-cli = { workspace = true, default-features = true }
+cumulus-client-service = { workspace = true, default-features = true }
+cumulus-primitives-core = { workspace = true, default-features = true }
+
+# Substrate Client
+sc-cli = { workspace = true, default-features = true }
+sc-service = { workspace = true, default-features = true }
+sc-sysinfo = { workspace = true, default-features = true }
+sc-telemetry = { workspace = true, default-features = true }
+
+# Substrate Primitives
+sp-runtime = { workspace = true, default-features = true }
+
+# FRAME
+frame-benchmarking-cli = { workspace = true, default-features = true }
+
+[build-dependencies]
+substrate-build-script-utils = { workspace = true, default-features = true }
